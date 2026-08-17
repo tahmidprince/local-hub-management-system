@@ -1,0 +1,22 @@
+﻿# Virtual Environment
+venv/
+ENV/
+env/
+
+# Python Bytecode & Cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Database
+db.sqlite3
+db.sqlite3-journal
+
+# Media / Uploaded files
+media/
+
+# Environment Variables & Secrets
+.env
+
+# VS Code settings
+.vscode/

@@ -2,15 +2,160 @@
 {% block title %}Seeker Dashboard{% endblock %}
 
 {% block content %}
-<div class="row">
-    <div class="col-12">
+<div class="row g-4">
+
+    <!-- Post / Edit task form -->
+    <div class="col-lg-5">
         <div class="card">
             <div class="card-body p-4">
-                <h3 class="mb-1">Seeker Dashboard</h3>
-                <p class="text-muted mb-0">
-                    Welcome, {{ user.full_name }}. This is a placeholder for the
-                    seeker workspace &mdash; build out widgets here in the next step.
+                <h4 class="mb-1">
+                    {% if editing_task %}Edit Task{% else %}Post a New Task{% endif %}
+                </h4>
+                <p class="text-muted small mb-4">
+                    {% if editing_task %}
+                        Updating "{{ editing_task.title }}".
+                    {% else %}
+                        Describe what you need and set a budget — providers will bid on it.
+                    {% endif %}
                 </p>
+
+                {% if form.non_field_errors %}
+                    <div class="alert alert-danger">
+                        {% for error in form.non_field_errors %}
+                            <div>{{ error }}</div>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+
+                <form method="post"
+                      action="{% if editing_task %}{% url 'task_edit' editing_task.pk %}{% else %}{% url 'dashboard_seeker' %}{% endif %}"
+                      novalidate>
+                    {% csrf_token %}
+
+                    <div class="mb-3">
+                        <label for="{{ form.title.id_for_label }}" class="form-label">Title</label>
+                        {{ form.title }}
+                        {% for error in form.title.errors %}
+                            <div class="text-danger small mt-1">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="{{ form.category.id_for_label }}" class="form-label">Category</label>
+                            {{ form.category }}
+                            {% for error in form.category.errors %}
+                                <div class="text-danger small mt-1">{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="{{ form.sub_category.id_for_label }}" class="form-label">Sub-category</label>
+                            {{ form.sub_category }}
+                            {% for error in form.sub_category.errors %}
+                                <div class="text-danger small mt-1">{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="{{ form.budget.id_for_label }}" class="form-label">Budget (BDT)</label>
+                        {{ form.budget }}
+                        {% for error in form.budget.errors %}
+                            <div class="text-danger small mt-1">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="{{ form.location.id_for_label }}" class="form-label">Location</label>
+                        {{ form.location }}
+                        {% for error in form.location.errors %}
+                            <div class="text-danger small mt-1">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="{{ form.description.id_for_label }}" class="form-label">Description</label>
+                        {{ form.description }}
+                        {% for error in form.description.errors %}
+                            <div class="text-danger small mt-1">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary flex-fill">
+                            {% if editing_task %}Save Changes{% else %}Post Task{% endif %}
+                        </button>
+                        {% if editing_task %}
+                            <a href="{% url 'dashboard_seeker' %}" class="btn btn-outline-secondary">Cancel</a>
+                        {% endif %}
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Posted tasks list -->
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="card-body p-4">
+                <h4 class="mb-3">Your Posted Tasks</h4>
+
+                {% if posted_tasks %}
+                    <div class="table-responsive">
+                        <table class="table align-middle">
+                            <thead>
+                                <tr>
+                                    <th>Title</th>
+                                    <th>Budget</th>
+                                    <th>Status</th>
+                                    <th class="text-end">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for task in posted_tasks %}
+                                    <tr>
+                                        <td>
+                                            {{ task.title }}
+                                            <div class="text-muted small">{{ task.sub_category }} &middot; {{ task.location }}</div>
+                                        </td>
+                                        <td>&#2547;{{ task.budget }}</td>
+                                        <td>
+                                            {% if task.status == 'posted' %}
+                                                <span class="badge text-bg-primary">Posted</span>
+                                            {% elif task.status == 'assigned' %}
+                                                <span class="badge text-bg-info">Assigned</span>
+                                            {% elif task.status == 'in_progress' %}
+                                                <span class="badge text-bg-warning">In Progress</span>
+                                            {% elif task.status == 'completed' %}
+                                                <span class="badge text-bg-success">Completed</span>
+                                            {% else %}
+                                                <span class="badge text-bg-secondary">Cancelled</span>
+                                            {% endif %}
+                                        </td>
+                                        <td class="text-end">
+                                            {% if task.status == 'posted' %}
+                                                <a href="{% url 'task_edit' task.pk %}" class="btn btn-sm btn-outline-secondary">
+                                                    <i class="bi bi-pencil"></i>
+                                                </a>
+                                                <form action="{% url 'task_delete' task.pk %}" method="post" class="d-inline"
+                                                      onsubmit="return confirm('Delete this task? This cannot be undone.');">
+                                                    {% csrf_token %}
+                                                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                                                        <i class="bi bi-trash"></i>
+                                                    </button>
+                                                </form>
+                                            {% else %}
+                                                <span class="text-muted small">Locked</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="text-muted mb-0">You haven't posted any tasks yet. Use the form to create your first one.</p>
+                {% endif %}
             </div>
         </div>
     </div>

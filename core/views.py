@@ -27,7 +27,7 @@ from .forms import (
     UserRegistrationForm,
     WorkEntryForm,
 )
-from .models import CartItem, CreativeItem, Order, OrderItem, TaskProposal, User, WorkEntry
+from .models import CartItem, CreativeItem, Order, OrderItem, Payment, TaskProposal, User, WorkEntry
 
 ROLE_DASHBOARD_URLS = {
     "seeker": "dashboard_seeker",
@@ -380,8 +380,9 @@ def accept_proposal_view(request, pk):
 
     messages.success(
         request, f"{proposal.provider.full_name}'s bid was accepted for \"{task.title}\"."
+        " Fund the task now to move it into progress."
     )
-    return redirect("task_detail", pk=task.pk)
+    return redirect(f"{reverse('process_payment')}?task_id={task.pk}")
 
 
 # =====================================================================
@@ -574,15 +575,247 @@ def checkout_view(request):
 
         messages.success(
             request,
-            f"Order #{order.pk} placed successfully! Total: \u09f3{order.total_amount}."
+            f"Order #{order.pk} created! Total: \u09f3{order.total_amount}. Complete payment to confirm it."
         )
-        return redirect("role_dispatch")
+        return redirect(f"{reverse('process_payment')}?order_id={order.pk}")
 
     return render(request, "shop/checkout.html", {
         "cart_items": cart_items,
         "total_amount": total_amount,
         "shipping_address": "",
     })
+
+
+# =====================================================================
+# PART 6 — ESCROW PAYMENTS & COMPLETION
+# =====================================================================
+
+
+def _release_payment_to_recipient(payment):
+    """
+    Flip an escrowed Payment to `released` and credit the amount onto
+    the recipient's `User.wallet_balance`.
+
+    NOTE: the spec for this step asked for `Profile.wallet_balance`,
+    but the actual schema (Step 1) put `wallet_balance` on `User`
+    itself — `Profile` has no such field. This credits `User.wallet_balance`
+    since that's the field that really exists; see the accompanying
+    note for how to migrate this onto Profile instead, if that's what
+    you actually want.
+
+    Locks the recipient's row for the duration of the update so two
+    payouts landing on the same wallet at once can't race and drop one.
+    """
+    if payment.recipient_id is None:
+        return False
+
+    recipient = User.objects.select_for_update().get(pk=payment.recipient_id)
+    recipient.wallet_balance = recipient.wallet_balance + payment.amount
+    recipient.save(update_fields=["wallet_balance"])
+
+    payment.status = Payment.Status.RELEASED
+    payment.save(update_fields=["status"])
+    return True
+
+
+@login_required
+def process_payment_view(request):
+    """
+    Simulated payment gateway. Takes exactly one of ?task_id= or
+    ?order_id= and funds escrow for it. On success:
+      - task  -> WorkEntry.status becomes 'in_progress'
+      - order -> Order.status becomes 'paid'
+    """
+    task_id = request.GET.get("task_id")
+    order_id = request.GET.get("order_id")
+
+    if bool(task_id) == bool(order_id):  # neither, or both — invalid either way
+        messages.error(request, "A payment must reference exactly one task or order.")
+        return redirect("role_dispatch")
+
+    task = None
+    order = None
+
+    if task_id:
+        task = get_object_or_404(WorkEntry, pk=task_id)
+
+        if request.user.id != task.seeker_id:
+            messages.error(request, "You do not have permission to fund this task.")
+            return redirect("role_dispatch")
+
+        if task.status != WorkEntry.Status.ASSIGNED:
+            messages.error(request, "This task isn't awaiting payment.")
+            return redirect("task_detail", pk=task.pk)
+
+        if Payment.objects.filter(
+            task=task,
+            status__in=[Payment.Status.HELD_IN_ESCROW, Payment.Status.RELEASED],
+        ).exists():
+            messages.info(request, "This task has already been funded.")
+            return redirect("task_detail", pk=task.pk)
+
+        amount = task.budget
+        recipient = task.provider
+
+    else:
+        order = get_object_or_404(Order, pk=order_id)
+
+        if request.user.id != order.buyer_id:
+            messages.error(request, "You do not have permission to pay for this order.")
+            return redirect("role_dispatch")
+
+        if order.status != Order.Status.PENDING:
+            messages.error(request, "This order isn't awaiting payment.")
+            return redirect("role_dispatch")
+
+        if Payment.objects.filter(
+            order=order,
+            status__in=[Payment.Status.HELD_IN_ESCROW, Payment.Status.RELEASED],
+        ).exists():
+            messages.info(request, "This order has already been paid.")
+            return redirect("role_dispatch")
+
+        amount = order.total_amount
+
+        # An Order can (in principle) bundle items from several artists;
+        # Payment.recipient is a single FK, so we can only auto-assign a
+        # payout target when every line item shares one artist. Mixed-
+        # artist orders fall back to recipient=None (platform-held) —
+        # splitting a single Order into a Payment-per-artist is a
+        # reasonable next step but out of scope here.
+        artist_ids = set(
+            order.items.select_related("item__artist").values_list(
+                "item__artist_id", flat=True
+            )
+        )
+        recipient = None
+        if len(artist_ids) == 1:
+            recipient = order.items.select_related("item__artist").first().item.artist
+
+    if request.method == "POST":
+        payment_method = request.POST.get("payment_method", "")
+        transaction_id = request.POST.get("transaction_id", "").strip()
+
+        if payment_method not in Payment.Method.values:
+            messages.error(request, "Please choose a valid payment method.")
+        elif not transaction_id:
+            messages.error(request, "Please enter a transaction ID.")
+        else:
+            try:
+                with transaction.atomic():
+                    Payment.objects.create(
+                        payer=request.user,
+                        recipient=recipient,
+                        task=task,
+                        order=order,
+                        amount=amount,
+                        payment_method=payment_method,
+                        transaction_id=transaction_id,
+                        status=Payment.Status.HELD_IN_ESCROW,
+                    )
+
+                    if task:
+                        task.status = WorkEntry.Status.IN_PROGRESS
+                        task.save(update_fields=["status", "updated_at"])
+                    else:
+                        order.status = Order.Status.PAID
+                        order.save(update_fields=["status"])
+            except IntegrityError:
+                messages.error(request, "That transaction ID has already been used.")
+            else:
+                messages.success(request, "Payment received — funds are held in escrow.")
+                if task:
+                    return redirect("task_detail", pk=task.pk)
+                return redirect("role_dispatch")
+
+    return render(request, "finance/payment_gateway.html", {
+        "task": task,
+        "order": order,
+        "amount": amount,
+        "payment_methods": Payment.Method.choices,
+    })
+
+
+@role_required(["seeker"])
+def mark_task_completed_view(request, task_id):
+    """
+    The seeker confirms a funded task is done: task -> completed, and
+    the escrowed Payment for it -> released, crediting the provider's
+    wallet.
+    """
+    task = get_object_or_404(WorkEntry, pk=task_id)
+
+    if request.user.id != task.seeker_id:
+        messages.error(request, "You do not have permission to do that.")
+        return redirect("role_dispatch")
+
+    if request.method != "POST":
+        return redirect("task_detail", pk=task.pk)
+
+    if task.status != WorkEntry.Status.IN_PROGRESS:
+        messages.error(request, "This task isn't in progress, so it can't be marked completed.")
+        return redirect("task_detail", pk=task.pk)
+
+    with transaction.atomic():
+        task.status = WorkEntry.Status.COMPLETED
+        task.save(update_fields=["status", "updated_at"])
+
+        payment = Payment.objects.select_for_update().filter(
+            task=task, status=Payment.Status.HELD_IN_ESCROW
+        ).first()
+
+        if payment:
+            _release_payment_to_recipient(payment)
+        else:
+            messages.warning(
+                request,
+                "Task marked completed, but no escrowed payment was found to release."
+            )
+
+    messages.success(
+        request,
+        f'"{task.title}" was marked completed and payment released to the provider.'
+    )
+    return redirect("task_detail", pk=task.pk)
+
+
+@role_required(["artist"])
+def mark_order_completed_view(request, order_id):
+    """
+    The fulfilling artist confirms an order is delivered: order ->
+    delivered (Order has no 'completed' status — 'delivered' is its
+    terminal, fulfilled state), and the escrowed Payment for it ->
+    released, crediting the artist's wallet.
+
+    Only works for orders with a single, unambiguous recipient artist
+    (see the mixed-artist note in process_payment_view).
+    """
+    order = get_object_or_404(Order, pk=order_id)
+
+    payment = Payment.objects.filter(
+        order=order, status=Payment.Status.HELD_IN_ESCROW
+    ).first()
+
+    if payment is None or payment.recipient_id != request.user.id:
+        messages.error(request, "You do not have permission to do that.")
+        return redirect("role_dispatch")
+
+    if request.method != "POST":
+        return redirect("role_dispatch")
+
+    if order.status != Order.Status.PAID:
+        messages.error(request, "This order isn't awaiting fulfillment.")
+        return redirect("role_dispatch")
+
+    with transaction.atomic():
+        order.status = Order.Status.DELIVERED
+        order.save(update_fields=["status"])
+
+        locked_payment = Payment.objects.select_for_update().get(pk=payment.pk)
+        _release_payment_to_recipient(locked_payment)
+
+    messages.success(request, f"Order #{order.pk} was marked delivered and payment released.")
+    return redirect("role_dispatch")
 
 
 # =====================================================================

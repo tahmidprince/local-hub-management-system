@@ -58,6 +58,30 @@
         </div>
 
         {% if is_owner %}
+            {% if task.status == 'assigned' %}
+                <div class="alert alert-info d-flex justify-content-between align-items-center">
+                    <span>This task is assigned to {{ task.provider.full_name }} but not yet funded.</span>
+                    <a href="{% url 'process_payment' %}?task_id={{ task.pk }}" class="btn btn-sm btn-primary">
+                        Fund Escrow
+                    </a>
+                </div>
+            {% elif task.status == 'in_progress' %}
+                <div class="alert alert-warning d-flex justify-content-between align-items-center">
+                    <span>Payment is held in escrow. Mark this task completed once the work is done.</span>
+                    <form action="{% url 'mark_task_completed' task.pk %}" method="post"
+                          onsubmit="return confirm('Mark this task completed and release payment to the provider?');">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-sm btn-success">
+                            <i class="bi bi-check-circle"></i> Mark Completed &amp; Release Payment
+                        </button>
+                    </form>
+                </div>
+            {% elif task.status == 'completed' %}
+                <div class="alert alert-success">
+                    This task is completed and payment has been released to the provider.
+                </div>
+            {% endif %}
+
             <!-- ================= SEEKER VIEW: proposals list ================= -->
             <div class="card">
                 <div class="card-body p-4">

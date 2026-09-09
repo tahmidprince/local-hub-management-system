@@ -39,6 +39,15 @@
                     <a class="nav-link" href="{% url 'shop_catalog' %}">Shop</a>
                 </li>
                 {% if user.is_authenticated %}
+                    
+                    <!-- THE NEW WALLET SECTION IS RIGHT HERE -->
+                    <li class="nav-item">
+                        <span class="nav-link text-success fw-bold">
+                            <i class="bi bi-wallet2"></i> &#2547;{{ user.wallet_balance }}
+                        </span>
+                    </li>
+                    <!-- END OF NEW WALLET SECTION -->
+
                     <li class="nav-item">
                         <span class="nav-link text-light-emphasis">
                             <i class="bi bi-person-circle"></i>

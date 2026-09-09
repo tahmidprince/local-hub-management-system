@@ -132,12 +132,15 @@
                                                 <span class="badge text-bg-secondary">Cancelled</span>
                                             {% endif %}
                                         </td>
-                                        <td class="text-end">
+                                        <td class="text-end text-nowrap">
+                                            <!-- The new View Button -->
+                                            <a href="{% url 'task_detail' task.pk %}" class="btn btn-sm btn-outline-primary">View</a>
+                                            
                                             {% if task.status == 'posted' %}
-                                                <a href="{% url 'task_edit' task.pk %}" class="btn btn-sm btn-outline-secondary">
+                                                <a href="{% url 'task_edit' task.pk %}" class="btn btn-sm btn-outline-secondary ms-1">
                                                     <i class="bi bi-pencil"></i>
                                                 </a>
-                                                <form action="{% url 'task_delete' task.pk %}" method="post" class="d-inline"
+                                                <form action="{% url 'task_delete' task.pk %}" method="post" class="d-inline ms-1"
                                                       onsubmit="return confirm('Delete this task? This cannot be undone.');">
                                                     {% csrf_token %}
                                                     <button type="submit" class="btn btn-sm btn-outline-danger">
@@ -145,7 +148,7 @@
                                                     </button>
                                                 </form>
                                             {% else %}
-                                                <span class="text-muted small">Locked</span>
+                                                <span class="text-muted small ms-2">Locked</span>
                                             {% endif %}
                                         </td>
                                     </tr>

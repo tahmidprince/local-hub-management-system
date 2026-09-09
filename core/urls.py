@@ -40,4 +40,9 @@ urlpatterns = [
     path("cart/add/<int:item_id>/", views.add_to_cart_view, name="add_to_cart"),
     path("cart/remove/<int:pk>/", views.cart_remove_view, name="cart_remove"),
     path("checkout/", views.checkout_view, name="checkout"),
+
+    # --- Escrow payments & completion ---------------------------------
+    path("payment/process/", views.process_payment_view, name="process_payment"),
+    path("complete/task/<int:task_id>/", views.mark_task_completed_view, name="mark_task_completed"),
+    path("complete/order/<int:order_id>/", views.mark_order_completed_view, name="mark_order_completed"),
 ]

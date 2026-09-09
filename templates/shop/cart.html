@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Your Cart{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-9">
+        <h3 class="mb-4">Your Cart</h3>
+
+        {% if cart_items %}
+            <div class="card mb-3">
+                <div class="card-body p-4">
+                    <div class="table-responsive">
+                        <table class="table align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Item</th>
+                                    <th>Artist</th>
+                                    <th class="text-end">Unit Price</th>
+                                    <th class="text-center">Qty</th>
+                                    <th class="text-end">Subtotal</th>
+                                    <th class="text-end">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for cart_item in cart_items %}
+                                    <tr>
+                                        <td>
+                                            <div class="d-flex align-items-center gap-2">
+                                                {% if cart_item.item.image %}
+                                                    <img src="{{ cart_item.item.image.url }}" alt="{{ cart_item.item.item_name }}"
+                                                         style="width: 48px; height: 48px; object-fit: cover;" class="rounded">
+                                                {% endif %}
+                                                <a href="{% url 'item_detail' cart_item.item.pk %}" class="text-decoration-none">
+                                                    {{ cart_item.item.item_name }}
+                                                </a>
+                                            </div>
+                                        </td>
+                                        <td>{{ cart_item.item.artist.full_name }}</td>
+                                        <td class="text-end">&#2547;{{ cart_item.item.price }}</td>
+                                        <td class="text-center">{{ cart_item.quantity }}</td>
+                                        <td class="text-end">&#2547;{{ cart_item.line_total }}</td>
+                                        <td class="text-end">
+                                            <form action="{% url 'cart_remove' cart_item.pk %}" method="post" class="d-inline"
+                                                  onsubmit="return confirm('Remove this item from your cart?');">
+                                                {% csrf_token %}
+                                                <button type="submit" class="btn btn-sm btn-outline-danger">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                            <tfoot>
+                                <tr>
+                                    <td colspan="4"></td>
+                                    <td class="text-end fw-bold">&#2547;{{ total_amount }}</td>
+                                    <td></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-flex justify-content-between align-items-center">
+                <a href="{% url 'shop_catalog' %}" class="btn btn-outline-secondary">
+                    <i class="bi bi-arrow-left"></i> Continue Shopping
+                </a>
+                <a href="{% url 'checkout' %}" class="btn btn-primary">
+                    Proceed to Checkout <i class="bi bi-arrow-right"></i>
+                </a>
+            </div>
+        {% else %}
+            <div class="card">
+                <div class="card-body p-4 text-muted">
+                    Your cart is empty.
+                    <a href="{% url 'shop_catalog' %}">Browse the shop</a> to find something you like.
+                </div>
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

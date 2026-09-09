@@ -32,4 +32,12 @@ urlpatterns = [
 
     # --- Admin (placeholder, Part 1) ---------------------------------
     path("dashboard/admin/", views.dashboard_admin_view, name="dashboard_admin"),
+
+    # --- Creative Shop: browse, cart, checkout ------------------------
+    path("shop/", views.shop_catalog_view, name="shop_catalog"),
+    path("shop/item/<int:pk>/", views.item_detail_view, name="item_detail"),
+    path("cart/", views.cart_view, name="cart_view"),
+    path("cart/add/<int:item_id>/", views.add_to_cart_view, name="add_to_cart"),
+    path("cart/remove/<int:pk>/", views.cart_remove_view, name="cart_remove"),
+    path("checkout/", views.checkout_view, name="checkout"),
 ]

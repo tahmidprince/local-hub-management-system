@@ -5,13 +5,19 @@ Part 1: register / login / logout / role dispatcher.
 Part 3: Seeker dashboard (post + manage WorkEntry) and Artist dashboard
         (post + manage CreativeItem), each with basic edit/delete so the
         CRUD loop is actually complete, not just "create".
+Part 4: Provider dashboard (browse + bid on tasks) and the seeker's
+        bid-acceptance / task-assignment cascade.
+Part 5: Creative Shop — public catalog/browsing, cart, and checkout.
 """
+from decimal import Decimal
+
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.db import IntegrityError, transaction
 from django.db.models import ProtectedError
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 
 from .decorators import role_required
 from .forms import (
@@ -21,7 +27,7 @@ from .forms import (
     UserRegistrationForm,
     WorkEntryForm,
 )
-from .models import CreativeItem, TaskProposal, User, WorkEntry
+from .models import CartItem, CreativeItem, Order, OrderItem, TaskProposal, User, WorkEntry
 
 ROLE_DASHBOARD_URLS = {
     "seeker": "dashboard_seeker",
@@ -376,6 +382,207 @@ def accept_proposal_view(request, pk):
         request, f"{proposal.provider.full_name}'s bid was accepted for \"{task.title}\"."
     )
     return redirect("task_detail", pk=task.pk)
+
+
+# =====================================================================
+# PART 5 — CREATIVE SHOP: BROWSE, CART, CHECKOUT
+# =====================================================================
+
+
+def shop_catalog_view(request):
+    """
+    Public product grid. No login required — browsing shouldn't be
+    gated behind an account, only buying.
+    """
+    items = (
+        CreativeItem.objects.filter(is_active=True, stock_quantity__gt=0)
+        .select_related("artist")
+        .order_by("-created_at")
+    )
+    return render(request, "shop/catalog.html", {"items": items})
+
+
+def item_detail_view(request, pk):
+    """
+    Full item showcase. GET is public; the "Add to Cart" POST requires
+    login (bounced to the login page with ?next= back to this item).
+    """
+    item = get_object_or_404(CreativeItem, pk=pk, is_active=True)
+
+    if request.method == "POST":
+        if not request.user.is_authenticated:
+            messages.info(request, "Please log in to add items to your cart.")
+            return redirect(f"{reverse('login')}?next={request.path}")
+
+        if item.stock_quantity < 1:
+            messages.error(request, "This item is currently out of stock.")
+            return redirect("item_detail", pk=item.pk)
+
+        try:
+            quantity = int(request.POST.get("quantity", 1))
+        except (TypeError, ValueError):
+            quantity = 1
+        quantity = max(1, min(quantity, item.stock_quantity))
+
+        cart_item, created = CartItem.objects.get_or_create(
+            user=request.user, item=item, defaults={"quantity": quantity}
+        )
+        if not created:
+            new_quantity = min(cart_item.quantity + quantity, item.stock_quantity)
+            if new_quantity == cart_item.quantity:
+                messages.warning(
+                    request,
+                    f"You already have the maximum available stock of "
+                    f'"{item.item_name}" in your cart.'
+                )
+            else:
+                cart_item.quantity = new_quantity
+                cart_item.save(update_fields=["quantity"])
+                messages.success(request, f'"{item.item_name}" quantity updated in your cart.')
+        else:
+            messages.success(request, f'"{item.item_name}" was added to your cart.')
+
+        return redirect("cart_view")
+
+    return render(request, "shop/item_detail.html", {"item": item})
+
+
+@login_required
+def add_to_cart_view(request, item_id):
+    """
+    POST-only "quick add" from the catalog grid — always adds a single
+    unit, or increments by one if the item is already in the cart.
+    """
+    if request.method != "POST":
+        return redirect("shop_catalog")
+
+    item = get_object_or_404(CreativeItem, pk=item_id, is_active=True)
+
+    if item.stock_quantity < 1:
+        messages.error(request, "This item is currently out of stock.")
+        return redirect("shop_catalog")
+
+    cart_item, created = CartItem.objects.get_or_create(
+        user=request.user, item=item, defaults={"quantity": 1}
+    )
+    if not created:
+        if cart_item.quantity >= item.stock_quantity:
+            messages.error(
+                request,
+                f'Only {item.stock_quantity} of "{item.item_name}" in stock — '
+                "you already have that many in your cart."
+            )
+        else:
+            cart_item.quantity += 1
+            cart_item.save(update_fields=["quantity"])
+            messages.success(request, f'"{item.item_name}" quantity updated in your cart.')
+    else:
+        messages.success(request, f'"{item.item_name}" was added to your cart.')
+
+    next_url = request.POST.get("next")
+    if next_url and next_url.startswith("/"):
+        return redirect(next_url)
+    return redirect("cart_view")
+
+
+@login_required
+def cart_view(request):
+    cart_items = (
+        request.user.cart_items.select_related("item", "item__artist").all()
+    )
+    total_amount = sum((ci.line_total for ci in cart_items), Decimal("0.00"))
+
+    return render(request, "shop/cart.html", {
+        "cart_items": cart_items,
+        "total_amount": total_amount,
+    })
+
+
+@login_required
+def cart_remove_view(request, pk):
+    cart_item = get_object_or_404(CartItem, pk=pk, user=request.user)
+
+    if request.method == "POST":
+        name = cart_item.item.item_name
+        cart_item.delete()
+        messages.success(request, f'"{name}" was removed from your cart.')
+
+    return redirect("cart_view")
+
+
+@login_required
+def checkout_view(request):
+    cart_items = list(
+        request.user.cart_items.select_related("item", "item__artist").all()
+    )
+
+    if not cart_items:
+        messages.error(request, "Your cart is empty.")
+        return redirect("cart_view")
+
+    total_amount = sum((ci.line_total for ci in cart_items), Decimal("0.00"))
+
+    if request.method == "POST":
+        shipping_address = request.POST.get("shipping_address", "").strip()
+        if not shipping_address:
+            messages.error(request, "Please provide a shipping address.")
+            return render(request, "shop/checkout.html", {
+                "cart_items": cart_items,
+                "total_amount": total_amount,
+                "shipping_address": shipping_address,
+            })
+
+        try:
+            with transaction.atomic():
+                order = Order.objects.create(
+                    buyer=request.user,
+                    total_amount=Decimal("0.00"),
+                    shipping_address=shipping_address,
+                )
+
+                running_total = Decimal("0.00")
+                # Re-fetch each item with a row lock so two simultaneous
+                # checkouts can't both oversell the last unit of stock.
+                for cart_item in cart_items:
+                    item = CreativeItem.objects.select_for_update().get(
+                        pk=cart_item.item_id
+                    )
+                    if item.stock_quantity < cart_item.quantity:
+                        raise ValueError(
+                            f'Not enough stock for "{item.item_name}" — '
+                            f"only {item.stock_quantity} left."
+                        )
+
+                    OrderItem.objects.create(
+                        order=order,
+                        item=item,
+                        quantity=cart_item.quantity,
+                        unit_price=item.price,
+                        subtotal=item.price * cart_item.quantity,
+                    )
+                    item.stock_quantity -= cart_item.quantity
+                    item.save(update_fields=["stock_quantity"])
+                    running_total += item.price * cart_item.quantity
+
+                order.total_amount = running_total
+                order.save(update_fields=["total_amount"])
+
+                request.user.cart_items.all().delete()
+        except ValueError as exc:
+            messages.error(request, str(exc))
+            return redirect("cart_view")
+
+        messages.success(
+            request,
+            f"Order #{order.pk} placed successfully! Total: \u09f3{order.total_amount}."
+        )
+        return redirect("role_dispatch")
+
+    return render(request, "shop/checkout.html", {
+        "cart_items": cart_items,
+        "total_amount": total_amount,
+        "shipping_address": "",
+    })
 
 
 # =====================================================================

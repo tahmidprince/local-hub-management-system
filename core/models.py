@@ -227,6 +227,10 @@ class CreativeItem(models.Model):
     stock_quantity = models.PositiveIntegerField(default=1)
     image = models.ImageField(upload_to="shop/")
     is_active = models.BooleanField(default=True)
+    is_approved = models.BooleanField(
+        default=False,
+        help_text="Must be approved by an admin before it appears in the public shop catalog.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -278,6 +282,7 @@ class Order(models.Model):
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
+        CONFIRMED = "confirmed", "Confirmed"
         PAID = "paid", "Paid"
         SHIPPED = "shipped", "Shipped"
         DELIVERED = "delivered", "Delivered"
@@ -346,6 +351,9 @@ class Payment(models.Model):
 
     class Method(models.TextChoices):
         WALLET = "wallet", "Wallet"
+        COD = "cod", "Cash on Delivery"
+        SSLZ = "sslz", "SSLCommerz"
+        BANK = "bank", "Bank Account"
         BKASH = "bkash", "bKash"
         NAGAD = "nagad", "Nagad"
         CARD = "card", "Card"
@@ -405,3 +413,49 @@ class Payment(models.Model):
 
     def __str__(self):
         return f"{self.transaction_id} — {self.amount} ({self.get_status_display()})"
+
+
+class WithdrawalRequest(models.Model):
+    """
+    A user's request to cash out their `User.wallet_balance` to an
+    external account (Bkash/Nagad/Bank). Submitting a request does NOT
+    move money by itself — an admin reviews it and marks it
+    completed/rejected, at which point the wallet debit (or refusal)
+    actually happens.
+    """
+
+    class Method(models.TextChoices):
+        BKASH = "bkash", "Bkash"
+        NAGAD = "nagad", "Nagad"
+        BANK = "bank", "Bank"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        COMPLETED = "completed", "Completed"
+        REJECTED = "rejected", "Rejected"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="withdrawal_requests",
+    )
+    amount = models.DecimalField(
+        max_digits=10, decimal_places=2, validators=[MinValueValidator(0)]
+    )
+    method = models.CharField(max_length=20, choices=Method.choices)
+    account_details = models.CharField(
+        max_length=100,
+        help_text="Bkash/Nagad phone number, or bank account number.",
+    )
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.PENDING
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Withdrawal Request"
+        verbose_name_plural = "Withdrawal Requests"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.user} — \u09f3{self.amount} ({self.get_status_display()})"

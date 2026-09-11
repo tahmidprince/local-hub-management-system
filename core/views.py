@@ -9,7 +9,7 @@ Part 4: Provider dashboard (browse + bid on tasks) and the seeker's
         bid-acceptance / task-assignment cascade.
 Part 5: Creative Shop — public catalog/browsing, cart, and checkout.
 """
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
@@ -27,7 +27,17 @@ from .forms import (
     UserRegistrationForm,
     WorkEntryForm,
 )
-from .models import CartItem, CreativeItem, Order, OrderItem, Payment, TaskProposal, User, WorkEntry
+from .models import (
+    CartItem,
+    CreativeItem,
+    Order,
+    OrderItem,
+    Payment,
+    TaskProposal,
+    User,
+    WithdrawalRequest,
+    WorkEntry,
+)
 
 ROLE_DASHBOARD_URLS = {
     "seeker": "dashboard_seeker",
@@ -180,7 +190,10 @@ def dashboard_artist_view(request):
             item = form.save(commit=False)
             item.artist = request.user
             item.save()
-            messages.success(request, f'"{item.item_name}" was added to your shop.')
+            messages.success(
+                request,
+                f'"{item.item_name}" was added to your shop and is awaiting admin approval.'
+            )
             return redirect("dashboard_artist")
         messages.error(request, "Please fix the errors below and try again.")
     else:
@@ -188,9 +201,16 @@ def dashboard_artist_view(request):
 
     artworks = request.user.artworks.all().order_by("-created_at")
 
+    incoming_orders = (
+        OrderItem.objects.filter(item__artist=request.user)
+        .select_related("order", "order__buyer", "item")
+        .order_by("-order__created_at")
+    )
+
     return render(request, "dashboards/artist.html", {
         "form": form,
         "artworks": artworks,
+        "incoming_orders": incoming_orders,
     })
 
 
@@ -393,10 +413,15 @@ def accept_proposal_view(request, pk):
 def shop_catalog_view(request):
     """
     Public product grid. No login required — browsing shouldn't be
-    gated behind an account, only buying.
+    gated behind an account, only buying. Only shows items that are
+    both switched on by the artist (is_active) AND cleared by an admin
+    (is_approved) — an artist listing something doesn't make it public
+    on its own anymore.
     """
     items = (
-        CreativeItem.objects.filter(is_active=True, stock_quantity__gt=0)
+        CreativeItem.objects.filter(
+            is_active=True, is_approved=True, stock_quantity__gt=0
+        )
         .select_related("artist")
         .order_by("-created_at")
     )
@@ -819,10 +844,145 @@ def mark_order_completed_view(request, order_id):
 
 
 # =====================================================================
-# PART 1 (unchanged) — ADMIN PLACEHOLDER DASHBOARD
+# PART 7 — WALLET WITHDRAWALS & ADMIN MODERATION
 # =====================================================================
+
+
+@role_required(["provider", "artist"])
+def request_withdrawal_view(request):
+    """
+    POST-only. Reserves funds immediately (deducted from the wallet the
+    moment the request is made, not when an admin later approves it) so
+    the same balance can't be withdrawn twice while a request is
+    pending. If an admin later rejects it, the funds are refunded (see
+    admin_process_withdrawal_view).
+    """
+    if request.method != "POST":
+        return redirect("role_dispatch")
+
+    method = request.POST.get("method", "")
+    account_details = request.POST.get("account_details", "").strip()
+    amount_raw = request.POST.get("amount", "").strip()
+
+    try:
+        amount = Decimal(amount_raw)
+    except (InvalidOperation, ValueError, TypeError):
+        messages.error(request, "Please enter a valid withdrawal amount.")
+        return redirect("role_dispatch")
+
+    if amount <= 0:
+        messages.error(request, "Withdrawal amount must be greater than zero.")
+        return redirect("role_dispatch")
+
+    if method not in WithdrawalRequest.Method.values:
+        messages.error(request, "Please choose a valid withdrawal method.")
+        return redirect("role_dispatch")
+
+    if not account_details:
+        messages.error(request, "Please provide your account/phone number.")
+        return redirect("role_dispatch")
+
+    with transaction.atomic():
+        user = User.objects.select_for_update().get(pk=request.user.pk)
+
+        if amount > user.wallet_balance:
+            messages.error(request, "You can't withdraw more than your wallet balance.")
+            return redirect("role_dispatch")
+
+        user.wallet_balance = user.wallet_balance - amount
+        user.save(update_fields=["wallet_balance"])
+
+        WithdrawalRequest.objects.create(
+            user=user,
+            amount=amount,
+            method=method,
+            account_details=account_details,
+            status=WithdrawalRequest.Status.PENDING,
+        )
+
+    messages.success(
+        request,
+        f"Withdrawal request for \u09f3{amount} submitted — funds have been "
+        "reserved from your wallet and will be sent once processed."
+    )
+    return redirect("role_dispatch")
 
 
 @role_required(["admin"])
 def dashboard_admin_view(request):
-    return render(request, "dashboards/admin.html")
+    pending_items = (
+        CreativeItem.objects.filter(is_approved=False)
+        .select_related("artist")
+        .order_by("-created_at")
+    )
+    pending_withdrawals = (
+        WithdrawalRequest.objects.filter(status=WithdrawalRequest.Status.PENDING)
+        .select_related("user")
+        .order_by("created_at")
+    )
+
+    return render(request, "dashboards/admin.html", {
+        "pending_items": pending_items,
+        "pending_withdrawals": pending_withdrawals,
+    })
+
+
+@role_required(["admin"])
+def admin_approve_item_view(request, pk):
+    item = get_object_or_404(CreativeItem, pk=pk)
+
+    if request.method == "POST":
+        item.is_approved = True
+        item.save(update_fields=["is_approved"])
+        messages.success(
+            request, f'"{item.item_name}" was approved and is now live in the shop.'
+        )
+
+    return redirect("dashboard_admin")
+
+
+@role_required(["admin"])
+def admin_process_withdrawal_view(request, pk):
+    """
+    POST-only. `action=complete` marks the (already-deducted) request
+    as paid out. `action=reject` refunds the reserved amount back onto
+    the user's wallet — since request_withdrawal_view deducts on
+    submission, a rejection with no refund would just delete the
+    user's money.
+    """
+    withdrawal = get_object_or_404(WithdrawalRequest, pk=pk)
+
+    if request.method != "POST":
+        return redirect("dashboard_admin")
+
+    if withdrawal.status != WithdrawalRequest.Status.PENDING:
+        messages.error(request, "This withdrawal request has already been processed.")
+        return redirect("dashboard_admin")
+
+    action = request.POST.get("action")
+
+    if action == "complete":
+        withdrawal.status = WithdrawalRequest.Status.COMPLETED
+        withdrawal.save(update_fields=["status"])
+        messages.success(
+            request,
+            f"Withdrawal of \u09f3{withdrawal.amount} for {withdrawal.user.full_name} marked as paid."
+        )
+    elif action == "reject":
+        with transaction.atomic():
+            user = User.objects.select_for_update().get(pk=withdrawal.user_id)
+            user.wallet_balance = user.wallet_balance + withdrawal.amount
+            user.save(update_fields=["wallet_balance"])
+
+            withdrawal.status = WithdrawalRequest.Status.REJECTED
+            withdrawal.save(update_fields=["status"])
+
+        messages.info(
+            request,
+            f"Withdrawal request for {withdrawal.user.full_name} was rejected and "
+            f"\u09f3{withdrawal.amount} refunded to their wallet."
+        )
+    else:
+        messages.error(request, "Unknown action.")
+
+    return redirect("dashboard_admin")

@@ -10,12 +10,13 @@ Part 4: Provider dashboard (browse + bid on tasks) and the seeker's
 Part 5: Creative Shop — public catalog/browsing, cart, and checkout.
 """
 from decimal import Decimal, InvalidOperation
+import uuid
 
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.db import IntegrityError, transaction
-from django.db.models import ProtectedError
+from django.db.models import ProtectedError, Sum
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 
@@ -108,6 +109,46 @@ def role_dispatch_view(request):
     return redirect(target)
 
 
+@login_required
+def profile_update_view(request):
+    """
+    Lets any logged-in user (whatever their role) edit the account
+    fields that live on `User` (phone_number) plus the extended
+    fields on their `Profile` (bio, skills, address, profile_picture).
+    The Profile row always exists by this point — it's auto-created
+    by the post_save signal the moment the User is created (Step 1).
+    """
+    profile = request.user.profile
+
+    if request.method == "POST":
+        phone_number = request.POST.get("phone_number", "").strip()
+        bio = request.POST.get("bio", "").strip()
+        skills = request.POST.get("skills", "").strip()
+        address = request.POST.get("address", "").strip()
+        profile_picture = request.FILES.get("profile_picture")
+
+        if not phone_number:
+            messages.error(request, "Phone number is required.")
+        elif User.objects.filter(phone_number=phone_number).exclude(pk=request.user.pk).exists():
+            messages.error(request, "That phone number is already in use by another account.")
+        else:
+            with transaction.atomic():
+                request.user.phone_number = phone_number
+                request.user.save(update_fields=["phone_number"])
+
+                profile.bio = bio
+                profile.skills = skills
+                profile.address = address
+                if profile_picture:
+                    profile.profile_picture = profile_picture
+                profile.save()
+
+            messages.success(request, "Your profile was updated.")
+            return redirect("profile")
+
+    return render(request, "profile.html", {"profile": profile})
+
+
 # =====================================================================
 # PART 3 — SEEKER DASHBOARD (post & manage tasks)
 # =====================================================================
@@ -129,9 +170,44 @@ def dashboard_seeker_view(request):
 
     posted_tasks = request.user.posted_tasks.all().order_by("-created_at")
 
+    # --- Metric cards ---------------------------------------------------
+    # "Active" = funded and either assigned or actually under way;
+    # posted-but-unassigned tasks aren't "active" yet, they're just open.
+    total_tasks_count = posted_tasks.count()
+    active_tasks_count = posted_tasks.filter(
+        status__in=[WorkEntry.Status.ASSIGNED, WorkEntry.Status.IN_PROGRESS]
+    ).count()
+    completed_tasks_count = posted_tasks.filter(status=WorkEntry.Status.COMPLETED).count()
+
+    # "Total Spent" adds up every payment this seeker has actually made
+    # that represents real money committed — whether it's still held in
+    # escrow for a task, already completed/released for a shop order,
+    # or already paid out to a provider. A payment that never happened
+    # (order still 'pending', no Payment row yet) contributes nothing.
+    total_spent = Payment.objects.filter(
+        payer=request.user,
+        status__in=[
+            Payment.Status.HELD_IN_ESCROW,
+            Payment.Status.COMPLETED,
+            Payment.Status.RELEASED,
+        ],
+    ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+
+    # --- "My Purchased Items" table --------------------------------------
+    purchased_items = (
+        OrderItem.objects.filter(order__buyer=request.user)
+        .select_related("order", "item")
+        .order_by("-order__created_at")
+    )
+
     return render(request, "dashboards/seeker.html", {
         "form": form,
         "posted_tasks": posted_tasks,
+        "total_tasks_count": total_tasks_count,
+        "active_tasks_count": active_tasks_count,
+        "completed_tasks_count": completed_tasks_count,
+        "total_spent": total_spent,
+        "purchased_items": purchased_items,
     })
 
 
@@ -287,9 +363,29 @@ def dashboard_provider_view(request):
 
     my_bids = request.user.proposals.all().order_by("-created_at")
 
+    # --- Metric cards ---------------------------------------------------
+    # Tasks this provider actually won (their proposal was accepted) and
+    # is currently working — funded but not yet confirmed done by the
+    # seeker. "Completed" and "Total Earnings" look at the same
+    # assigned_tasks relation, just filtered/aggregated differently.
+    ongoing_tasks = request.user.assigned_tasks.filter(
+        status__in=[WorkEntry.Status.ASSIGNED, WorkEntry.Status.IN_PROGRESS]
+    ).order_by("-updated_at")
+
+    completed_tasks_count = request.user.assigned_tasks.filter(
+        status=WorkEntry.Status.COMPLETED
+    ).count()
+
+    total_earnings = Payment.objects.filter(
+        recipient=request.user, status=Payment.Status.RELEASED
+    ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+
     return render(request, "dashboards/provider.html", {
         "available_tasks": available_tasks,
         "my_bids": my_bids,
+        "ongoing_tasks": ongoing_tasks,
+        "completed_tasks_count": completed_tasks_count,
+        "total_earnings": total_earnings,
     })
 
 
@@ -719,38 +815,101 @@ def process_payment_view(request):
 
     if request.method == "POST":
         payment_method = request.POST.get("payment_method", "")
-        transaction_id = request.POST.get("transaction_id", "").strip()
 
         if payment_method not in Payment.Method.values:
             messages.error(request, "Please choose a valid payment method.")
-        elif not transaction_id:
+            return render(request, "finance/payment_gateway.html", {
+                "task": task, "order": order, "amount": amount,
+                "payment_methods": Payment.Method.choices,
+            })
+
+        # COD only makes sense for a shop order (cash changes hands at
+        # the doorstep) — a task never reaches this branch as COD since
+        # the checkout template only offers it for orders, but guard it
+        # here too rather than trusting the form.
+        is_cod = order is not None and payment_method == Payment.Method.COD
+
+        if is_cod:
+            # No real transaction exists yet — cash hasn't changed hands,
+            # it will on delivery — so there's nothing for the buyer to
+            # type in. transaction_id is still required + unique on the
+            # model, so we mint a clearly-labelled placeholder.
+            transaction_id = f"COD-{order.pk}-{uuid.uuid4().hex[:8].upper()}"
+        else:
+            transaction_id = request.POST.get("transaction_id", "").strip()
+
+        if not is_cod and not transaction_id:
             messages.error(request, "Please enter a transaction ID.")
         else:
             try:
                 with transaction.atomic():
-                    Payment.objects.create(
-                        payer=request.user,
-                        recipient=recipient,
-                        task=task,
-                        order=order,
-                        amount=amount,
-                        payment_method=payment_method,
-                        transaction_id=transaction_id,
-                        status=Payment.Status.HELD_IN_ESCROW,
-                    )
-
                     if task:
+                        # Tasks ALWAYS go through escrow, no matter which
+                        # payment method was picked. The escrow hold is
+                        # the entire safety mechanism for task funding —
+                        # the provider only gets paid once the seeker
+                        # confirms the work is actually done (Step 6).
+                        # Branching a task payment straight to
+                        # `completed` here would silently defeat that,
+                        # since mark_task_completed_view specifically
+                        # looks for a HELD_IN_ESCROW payment to release.
+                        Payment.objects.create(
+                            payer=request.user,
+                            recipient=recipient,
+                            task=task,
+                            amount=amount,
+                            payment_method=payment_method,
+                            transaction_id=transaction_id,
+                            status=Payment.Status.HELD_IN_ESCROW,
+                        )
                         task.status = WorkEntry.Status.IN_PROGRESS
                         task.save(update_fields=["status", "updated_at"])
+
+                    elif is_cod:
+                        Payment.objects.create(
+                            payer=request.user,
+                            recipient=recipient,
+                            order=order,
+                            amount=amount,
+                            payment_method=payment_method,
+                            transaction_id=transaction_id,
+                            status=Payment.Status.PENDING,
+                        )
+                        order.status = Order.Status.CONFIRMED
+                        order.save(update_fields=["status"])
+
                     else:
+                        # Simulated instant capture — SSLCommerz, bKash,
+                        # Nagad, Card, Bank, or Wallet all land here as
+                        # "charged right now". A real SSLCommerz
+                        # integration would instead redirect out to their
+                        # hosted page and confirm via an IPN webhook
+                        # rather than trusting this POST directly — see
+                        # the note at the end of this response.
+                        Payment.objects.create(
+                            payer=request.user,
+                            recipient=recipient,
+                            order=order,
+                            amount=amount,
+                            payment_method=payment_method,
+                            transaction_id=transaction_id,
+                            status=Payment.Status.COMPLETED,
+                        )
                         order.status = Order.Status.PAID
                         order.save(update_fields=["status"])
             except IntegrityError:
                 messages.error(request, "That transaction ID has already been used.")
             else:
-                messages.success(request, "Payment received — funds are held in escrow.")
                 if task:
+                    messages.success(request, "Payment received — funds are held in escrow.")
                     return redirect("task_detail", pk=task.pk)
+                elif is_cod:
+                    messages.success(
+                        request,
+                        f"Order #{order.pk} confirmed! Pay \u09f3{amount} in cash when it's delivered."
+                    )
+                else:
+                    messages.success(request, f"Payment successful — order #{order.pk} is confirmed.")
                 return redirect("role_dispatch")
 
     return render(request, "finance/payment_gateway.html", {
@@ -809,8 +968,17 @@ def mark_order_completed_view(request, order_id):
     """
     The fulfilling artist confirms an order is delivered: order ->
     delivered (Order has no 'completed' status — 'delivered' is its
-    terminal, fulfilled state), and the escrowed Payment for it ->
-    released, crediting the artist's wallet.
+    terminal, fulfilled state), and the Payment for it -> released,
+    crediting the artist's wallet.
+
+    Payment status here is COMPLETED for gateway-paid orders (the
+    normal case since Step 8's checkout branching) or HELD_IN_ESCROW
+    for any orders paid before that branching existed — both mean
+    "the platform already has the money, ready to hand to the artist".
+    COD orders sit at Payment.Status.PENDING (nothing collected yet)
+    and are deliberately excluded: releasing a wallet credit for cash
+    that hasn't actually been collected would pay the artist out of
+    money the platform doesn't have.
 
     Only works for orders with a single, unambiguous recipient artist
     (see the mixed-artist note in process_payment_view).
@@ -818,7 +986,8 @@ def mark_order_completed_view(request, order_id):
     order = get_object_or_404(Order, pk=order_id)
 
     payment = Payment.objects.filter(
-        order=order, status=Payment.Status.HELD_IN_ESCROW
+        order=order,
+        status__in=[Payment.Status.HELD_IN_ESCROW, Payment.Status.COMPLETED],
     ).first()
 
     if payment is None or payment.recipient_id != request.user.id:
@@ -841,6 +1010,125 @@ def mark_order_completed_view(request, order_id):
 
     messages.success(request, f"Order #{order.pk} was marked delivered and payment released.")
     return redirect("role_dispatch")
+
+
+# =====================================================================
+# PART 9 — ARTIST ORDER FULFILLMENT (shipping status + closing the COD loop)
+# =====================================================================
+#
+# NOTE ON HOW THIS RELATES TO mark_order_completed_view ABOVE:
+# That older view only knew how to jump straight from 'paid' to
+# 'delivered' in one click, and it had no idea Cash on Delivery even
+# existed — a COD order sits at 'confirmed' (not 'paid') until cash is
+# physically collected, so that view could never fire for COD orders
+# at all. update_order_status_view below is the full replacement: it
+# walks an order through EVERY shipping step (shipped, then delivered)
+# for BOTH payment styles, and folds in the payment release itself so
+# there's only one button an artist ever needs to click. The artist
+# dashboard template now calls this view instead of the old one — the
+# old view/URL are left in place untouched, just no longer linked to
+# from the UI, in case anything else in the project still points at it.
+
+
+@role_required(["artist"])
+def update_order_status_view(request, order_id):
+    """
+    Moves ONE order forward, one step at a time, through this simple
+    state machine:
+
+        confirmed/paid  --(ship it)-->  shipped  --(deliver it)-->  delivered
+
+    Every branch below re-checks order.status itself before doing
+    anything, so this view can only ever move an order forward one
+    step — never backwards, and never by skipping a step — no matter
+    what the button in the template says.
+    """
+    order = get_object_or_404(Order, pk=order_id)
+
+    # --- Permission check -------------------------------------------
+    # An Order can contain items from more than one artist (Step 6
+    # notes this limitation). So "do you own this order" really means
+    # "is your user ID one of the artists who made something in it".
+    order_artist_ids = set(
+        order.items.select_related("item__artist").values_list("item__artist_id", flat=True)
+    )
+    if request.user.id not in order_artist_ids:
+        messages.error(request, "You do not have permission to update this order.")
+        return redirect("dashboard_artist")
+
+    # This view only ever acts on POST — a GET to this URL just bounces
+    # back to the dashboard without changing anything.
+    if request.method != "POST":
+        return redirect("dashboard_artist")
+
+    # --- STEP 1: confirmed/paid -> shipped ---------------------------
+    # 'confirmed' = a Cash on Delivery order the buyer placed but has
+    #               NOT paid for yet (they'll pay the courier).
+    # 'paid'      = a gateway/wallet/card order that was already
+    #               charged at checkout (Step 8's checkout branching).
+    # Either way, the artist can now say "this has left my hands."
+    if order.status in [Order.Status.CONFIRMED, Order.Status.PAID]:
+        order.status = Order.Status.SHIPPED
+        order.save(update_fields=["status"])
+        messages.success(request, f"Order #{order.pk} marked as shipped.")
+        return redirect("dashboard_artist")
+
+    # --- STEP 2: shipped -> delivered ---------------------------------
+    elif order.status == Order.Status.SHIPPED:
+        with transaction.atomic():
+            # Lock the Payment row for the rest of this transaction so
+            # two rapid double-clicks on "Mark as Delivered" can't both
+            # read "pending" and both try to release the same money.
+            payment = (
+                Payment.objects.select_for_update()
+                .filter(order=order)
+                .first()
+            )
+
+            if payment and payment.payment_method == Payment.Method.COD \
+                    and payment.status == Payment.Status.PENDING:
+                # ===== CLOSING THE COD LOOP =====
+                # For every other payment method, money was already
+                # collected back at checkout (Step 8). For COD, nothing
+                # was collected until right now — the courier just
+                # handed the buyer's cash over. So THIS is the moment
+                # a COD Payment stops being "pending" and becomes real,
+                # completed money the platform actually holds.
+                payment.status = Payment.Status.COMPLETED
+                payment.save(update_fields=["status"])
+
+                # The order itself was sitting at 'confirmed' (not yet
+                # paid) this whole time. Now that cash is in hand, it's
+                # correct to say the order has been paid for.
+                order.status = Order.Status.PAID
+                order.save(update_fields=["status"])
+
+            # Whether the money arrived at checkout (gateway) or just
+            # now at the doorstep (COD, handled above), the order has
+            # physically been delivered — so this is the point where
+            # the artist actually gets paid out of the held funds.
+            if payment and payment.status in [
+                Payment.Status.HELD_IN_ESCROW, Payment.Status.COMPLETED
+            ]:
+                _release_payment_to_recipient(payment)
+
+            order.status = Order.Status.DELIVERED
+            order.save(update_fields=["status"])
+
+        messages.success(
+            request,
+            f"Order #{order.pk} marked as delivered. Payment has been released to your wallet."
+        )
+        return redirect("dashboard_artist")
+
+    # --- Anything else (pending, delivered, cancelled) can't move ----
+    else:
+        messages.error(
+            request,
+            f"Order #{order.pk} can't be updated from its current status "
+            f"('{order.get_status_display()}')."
+        )
+        return redirect("dashboard_artist")
 
 
 # =====================================================================
@@ -921,9 +1209,24 @@ def dashboard_admin_view(request):
         .order_by("created_at")
     )
 
+    # --- Metric cards ---------------------------------------------------
+    total_users = User.objects.count()
+
+    # "Total Escrow Volume" = money currently locked up and not yet
+    # handed to anyone — i.e. funded tasks still awaiting completion.
+    # (Paid-but-undelivered shop orders sit at Payment.Status.COMPLETED,
+    # not HELD_IN_ESCROW, since Step 8's checkout branching — so this
+    # figure specifically tracks task escrow, not shop-order money in
+    # transit. Widen the status__in below if you want both counted.)
+    total_escrow_volume = Payment.objects.filter(
+        status=Payment.Status.HELD_IN_ESCROW
+    ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+
     return render(request, "dashboards/admin.html", {
         "pending_items": pending_items,
         "pending_withdrawals": pending_withdrawals,
+        "total_users": total_users,
+        "total_escrow_volume": total_escrow_volume,
     })
 
 
@@ -937,6 +1240,32 @@ def admin_approve_item_view(request, pk):
         messages.success(
             request, f'"{item.item_name}" was approved and is now live in the shop.'
         )
+
+    return redirect("dashboard_admin")
+
+
+@role_required(["admin"])
+def admin_reject_item_view(request, pk):
+    """
+    Rejects a pending CreativeItem. There's no "rejected" state on the
+    model — just is_active/is_approved booleans — so a reject can't
+    just flip a flag the way approve does; leaving is_approved=False
+    would keep it stuck in `pending_items` forever, still nagging the
+    admin every time this page loads. Deleting it outright is the
+    simplest fix: the listing never went live, so there's nothing to
+    "unpublish", only a submission to clear out of the queue.
+
+    If you'd rather keep rejected listings around (e.g. so the artist
+    can see why and edit/resubmit), swap the delete for something like
+    an `is_rejected` field instead — that needs a small model change,
+    not just this view.
+    """
+    item = get_object_or_404(CreativeItem, pk=pk)
+
+    if request.method == "POST":
+        name = item.item_name
+        item.delete()
+        messages.success(request, f'"{name}" was rejected and removed from the shop.')
 
     return redirect("dashboard_admin")
 

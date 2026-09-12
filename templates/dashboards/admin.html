@@ -3,26 +3,62 @@
 
 {% block content %}
 
+<!-- ============================== METRIC CARDS ============================== -->
+<div class="row row-cols-1 row-cols-sm-2 row-cols-lg-4 g-3 mb-4">
+    <div class="col">
+        <div class="card shadow-sm rounded-3 h-100">
+            <div class="card-body">
+                <div class="text-muted small">Total Users</div>
+                <div class="fs-3 fw-bold">{{ total_users }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card shadow-sm rounded-3 h-100">
+            <div class="card-body">
+                <div class="text-muted small">Pending Item Approvals</div>
+                <div class="fs-3 fw-bold text-warning">{{ pending_items|length }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card shadow-sm rounded-3 h-100">
+            <div class="card-body">
+                <div class="text-muted small">Total Escrow Volume</div>
+                <div class="fs-3 fw-bold text-primary">&#2547;{{ total_escrow_volume|floatformat:2 }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card shadow-sm rounded-3 h-100">
+            <div class="card-body">
+                <div class="text-muted small">Pending Withdrawals</div>
+                <div class="fs-3 fw-bold text-warning">{{ pending_withdrawals|length }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ============================== ITEMS AWAITING MODERATION ============================== -->
 <div class="mb-4">
     <h4 class="mb-3">
-        Pending Shop Items
+        Items Awaiting Moderation
         {% if pending_items %}
-            <span class="badge text-bg-warning">{{ pending_items|length }}</span>
+            <span class="badge bg-warning text-dark">{{ pending_items|length }}</span>
         {% endif %}
     </h4>
 
     {% if pending_items %}
-        <div class="card">
+        <div class="card shadow-sm rounded-3">
             <div class="card-body p-4">
                 <div class="table-responsive">
-                    <table class="table align-middle mb-0">
+                    <table class="table table-hover align-middle mb-0">
                         <thead>
                             <tr>
                                 <th>Item</th>
                                 <th>Artist</th>
                                 <th class="text-end">Price</th>
                                 <th class="text-center">Stock</th>
-                                <th>Listed</th>
                                 <th class="text-end">Action</th>
                             </tr>
                         </thead>
@@ -41,20 +77,22 @@
                                     <td>{{ item.artist.full_name }}</td>
                                     <td class="text-end">&#2547;{{ item.price }}</td>
                                     <td class="text-center">{{ item.stock_quantity }}</td>
-                                    <td>
-                                        {% if item.is_active %}
-                                            <span class="badge text-bg-success">Yes</span>
-                                        {% else %}
-                                            <span class="badge text-bg-secondary">No</span>
-                                        {% endif %}
-                                    </td>
                                     <td class="text-end">
-                                        <form action="{% url 'admin_approve_item' item.pk %}" method="post" class="d-inline">
-                                            {% csrf_token %}
-                                            <button type="submit" class="btn btn-sm btn-success">
-                                                <i class="bi bi-check-circle"></i> Approve
-                                            </button>
-                                        </form>
+                                        <div class="d-flex gap-2 justify-content-end">
+                                            <form action="{% url 'admin_approve_item' item.pk %}" method="post" class="d-inline">
+                                                {% csrf_token %}
+                                                <button type="submit" class="btn btn-sm btn-success">
+                                                    <i class="bi bi-check-circle"></i> Approve
+                                                </button>
+                                            </form>
+                                            <form action="{% url 'admin_reject_item' item.pk %}" method="post" class="d-inline"
+                                                  onsubmit="return confirm('Reject and permanently remove this item?');">
+                                                {% csrf_token %}
+                                                <button type="submit" class="btn btn-sm btn-outline-danger">
+                                                    <i class="bi bi-x-circle"></i> Reject
+                                                </button>
+                                            </form>
+                                        </div>
                                     </td>
                                 </tr>
                             {% endfor %}
@@ -64,7 +102,7 @@
             </div>
         </div>
     {% else %}
-        <div class="card">
+        <div class="card shadow-sm rounded-3">
             <div class="card-body p-4 text-muted">
                 No shop items are awaiting approval.
             </div>
@@ -72,19 +110,20 @@
     {% endif %}
 </div>
 
+<!-- ============================== PENDING CASH-OUT REQUESTS ============================== -->
 <div>
     <h4 class="mb-3">
-        Pending Withdrawal Requests
+        Pending Cash-out Requests
         {% if pending_withdrawals %}
-            <span class="badge text-bg-warning">{{ pending_withdrawals|length }}</span>
+            <span class="badge bg-warning text-dark">{{ pending_withdrawals|length }}</span>
         {% endif %}
     </h4>
 
     {% if pending_withdrawals %}
-        <div class="card">
+        <div class="card shadow-sm rounded-3">
             <div class="card-body p-4">
                 <div class="table-responsive">
-                    <table class="table align-middle mb-0">
+                    <table class="table table-hover align-middle mb-0">
                         <thead>
                             <tr>
                                 <th>User</th>
@@ -134,7 +173,7 @@
             </div>
         </div>
     {% else %}
-        <div class="card">
+        <div class="card shadow-sm rounded-3">
             <div class="card-body p-4 text-muted">
                 No withdrawal requests are pending.
             </div>

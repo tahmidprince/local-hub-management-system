@@ -359,6 +359,7 @@ class Payment(models.Model):
         CARD = "card", "Card"
 
     class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
         HELD_IN_ESCROW = "held_in_escrow", "Held in Escrow"
         RELEASED = "released", "Released"
         REFUNDED = "refunded", "Refunded"

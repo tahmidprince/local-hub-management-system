@@ -14,6 +14,9 @@ urlpatterns = [
     # --- Post-login dispatcher -------------------------------------
     path("dashboard/", views.role_dispatch_view, name="role_dispatch"),
 
+    # --- Account: profile management -----------------------------------
+    path("profile/", views.profile_update_view, name="profile"),
+
     # --- Seeker: post & manage tasks ---------------------------------
     path("dashboard/seeker/", views.dashboard_seeker_view, name="dashboard_seeker"),
     path("dashboard/seeker/tasks/<int:pk>/edit/", views.task_edit_view, name="task_edit"),
@@ -33,6 +36,7 @@ urlpatterns = [
     # --- Admin (placeholder, Part 1) ---------------------------------
     path("dashboard/admin/", views.dashboard_admin_view, name="dashboard_admin"),
     path("admin/item/<int:pk>/approve/", views.admin_approve_item_view, name="admin_approve_item"),
+    path("admin/item/<int:pk>/reject/", views.admin_reject_item_view, name="admin_reject_item"),
     path("admin/withdrawal/<int:pk>/process/", views.admin_process_withdrawal_view, name="admin_process_withdrawal"),
 
     # --- Creative Shop: browse, cart, checkout ------------------------
@@ -47,6 +51,9 @@ urlpatterns = [
     path("payment/process/", views.process_payment_view, name="process_payment"),
     path("complete/task/<int:task_id>/", views.mark_task_completed_view, name="mark_task_completed"),
     path("complete/order/<int:order_id>/", views.mark_order_completed_view, name="mark_order_completed"),
+
+    # --- Artist order fulfillment (shipping status + COD loop) ---------
+    path("order/<int:order_id>/update-status/", views.update_order_status_view, name="update_order_status"),
 
     # --- Wallet withdrawals -------------------------------------------
     path("wallet/withdraw/", views.request_withdrawal_view, name="request_withdrawal"),

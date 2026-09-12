@@ -9,9 +9,12 @@
                 <div class="text-center mb-4">
                     <i class="bi bi-shield-lock display-6 text-primary"></i>
                     <h4 class="mt-2 mb-1">Secure Payment</h4>
-                    <p class="text-muted small mb-0">
-                        Funds are held in escrow until
-                        {% if task %}the task is marked completed{% else %}the order is delivered{% endif %}.
+                    <p class="text-muted small mb-0" id="payment-subtitle">
+                        {% if task %}
+                            Funds are held in escrow until the task is marked completed.
+                        {% else %}
+                            Pay now to confirm your order, or choose Cash on Delivery to pay when it arrives.
+                        {% endif %}
                     </p>
                 </div>
 
@@ -55,25 +58,38 @@
 
                     <div class="mb-3">
                         <label for="payment_method" class="form-label">Payment Method</label>
-                        <select id="payment_method" name="payment_method" class="form-select" required>
+                        <select id="payment_method" name="payment_method" class="form-select" required
+                                {% if not task %}onchange="togglePaymentUI(this.value)"{% endif %}>
                             <option value="" selected disabled>Choose a payment method&hellip;</option>
                             {% for value, label in payment_methods %}
-                                <option value="{{ value }}">{{ label }}</option>
+                                {# COD only makes sense for a shop order, never for funding a task #}
+                                {% if task and value == 'cod' %}
+                                {% else %}
+                                    <option value="{{ value }}">{{ label }}</option>
+                                {% endif %}
                             {% endfor %}
                         </select>
                     </div>
 
-                    <div class="mb-4">
+                    <div class="mb-4" id="transaction-id-field">
                         <label for="transaction_id" class="form-label">Transaction ID</label>
                         <input type="text" id="transaction_id" name="transaction_id" class="form-control"
-                               placeholder="e.g. TXN-84920175" required>
+                               placeholder="e.g. TXN-84920175">
                         <div class="form-text">
-                            Enter the reference number from your Bkash/Nagad/Card confirmation.
+                            Enter the reference number from your bKash/Nagad/SSLCommerz/Card confirmation.
                         </div>
                     </div>
 
+                    {% if not task %}
+                        <div class="alert alert-info d-none" id="cod-note">
+                            <i class="bi bi-cash-coin"></i>
+                            No transaction ID needed — you'll pay <strong>&#2547;{{ amount }}</strong>
+                            in cash when your order is delivered.
+                        </div>
+                    {% endif %}
+
                     <button type="submit" class="btn btn-primary w-100">
-                        Pay &#2547;{{ amount }}
+                        <span id="pay-button-label">Pay &#2547;{{ amount }}</span>
                     </button>
                 </form>
             </div>
@@ -92,4 +108,27 @@
         </div>
     </div>
 </div>
+
+{% if not task %}
+<script>
+    function togglePaymentUI(method) {
+        var txnField = document.getElementById('transaction-id-field');
+        var txnInput = document.getElementById('transaction_id');
+        var codNote = document.getElementById('cod-note');
+        var payLabel = document.getElementById('pay-button-label');
+
+        if (method === 'cod') {
+            txnField.classList.add('d-none');
+            txnInput.removeAttribute('required');
+            codNote.classList.remove('d-none');
+            payLabel.textContent = 'Confirm Order (Pay on Delivery)';
+        } else {
+            txnField.classList.remove('d-none');
+            txnInput.setAttribute('required', 'required');
+            codNote.classList.add('d-none');
+            payLabel.textContent = 'Pay \u09f3{{ amount }}';
+        }
+    }
+</script>
+{% endif %}
 {% endblock %}

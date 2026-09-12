@@ -2,11 +2,51 @@
 {% block title %}Seeker Dashboard{% endblock %}
 
 {% block content %}
+
+<!-- ============================== METRIC CARDS ============================== -->
+<div class="row row-cols-1 row-cols-sm-2 row-cols-lg-4 g-3 mb-4">
+    <div class="col">
+        <div class="card shadow-sm rounded-3 h-100">
+            <div class="card-body">
+                <div class="text-muted small">Total Tasks Posted</div>
+                <div class="fs-3 fw-bold">{{ total_tasks_count }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card shadow-sm rounded-3 h-100">
+            <div class="card-body">
+                <div class="text-muted small">Active Tasks</div>
+                <div class="fs-3 fw-bold text-primary">{{ active_tasks_count }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card shadow-sm rounded-3 h-100">
+            <div class="card-body">
+                <div class="text-muted small">Completed Tasks</div>
+                <div class="fs-3 fw-bold text-success">{{ completed_tasks_count }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card shadow-sm rounded-3 h-100">
+            <div class="card-body">
+                <div class="text-muted small">Wallet Balance / Total Spent</div>
+                <div class="fs-5 fw-bold">
+                    &#2547;{{ user.wallet_balance }}
+                    <span class="text-muted small fw-normal">/ &#2547;{{ total_spent|floatformat:2 }} spent</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="row g-4">
 
     <!-- Post / Edit task form -->
     <div class="col-lg-5">
-        <div class="card">
+        <div class="card shadow-sm rounded-3">
             <div class="card-body p-4">
                 <h4 class="mb-1">
                     {% if editing_task %}Edit Task{% else %}Post a New Task{% endif %}
@@ -96,17 +136,18 @@
 
     <!-- Posted tasks list -->
     <div class="col-lg-7">
-        <div class="card">
+        <div class="card shadow-sm rounded-3">
             <div class="card-body p-4">
-                <h4 class="mb-3">Your Posted Tasks</h4>
+                <h4 class="mb-3">My Posted Tasks</h4>
 
                 {% if posted_tasks %}
                     <div class="table-responsive">
-                        <table class="table align-middle">
+                        <table class="table table-hover align-middle">
                             <thead>
                                 <tr>
                                     <th>Title</th>
                                     <th>Budget</th>
+                                    <th>Provider</th>
                                     <th>Status</th>
                                     <th class="text-end">Actions</th>
                                 </tr>
@@ -120,35 +161,41 @@
                                         </td>
                                         <td>&#2547;{{ task.budget }}</td>
                                         <td>
-                                            {% if task.status == 'posted' %}
-                                                <span class="badge text-bg-primary">Posted</span>
-                                            {% elif task.status == 'assigned' %}
-                                                <span class="badge text-bg-info">Assigned</span>
-                                            {% elif task.status == 'in_progress' %}
-                                                <span class="badge text-bg-warning">In Progress</span>
-                                            {% elif task.status == 'completed' %}
-                                                <span class="badge text-bg-success">Completed</span>
+                                            {% if task.provider %}
+                                                {{ task.provider.full_name }}
                                             {% else %}
-                                                <span class="badge text-bg-secondary">Cancelled</span>
+                                                <span class="text-muted small">&mdash; Unassigned</span>
                                             {% endif %}
                                         </td>
-                                        <td class="text-end text-nowrap">
-                                            <!-- The new View Button -->
-                                            <a href="{% url 'task_detail' task.pk %}" class="btn btn-sm btn-outline-primary">View</a>
-                                            
+                                        <td>
                                             {% if task.status == 'posted' %}
-                                                <a href="{% url 'task_edit' task.pk %}" class="btn btn-sm btn-outline-secondary ms-1">
+                                                <span class="badge bg-primary">Posted</span>
+                                            {% elif task.status == 'assigned' %}
+                                                <span class="badge bg-info text-dark">Assigned</span>
+                                            {% elif task.status == 'in_progress' %}
+                                                <span class="badge bg-warning text-dark">In Progress</span>
+                                            {% elif task.status == 'completed' %}
+                                                <span class="badge bg-success">Completed</span>
+                                            {% else %}
+                                                <span class="badge bg-secondary">Cancelled</span>
+                                            {% endif %}
+                                        </td>
+                                        <td class="text-end">
+                                            <a href="{% url 'task_detail' task.pk %}" class="btn btn-sm btn-outline-primary">
+                                                <i class="bi bi-people"></i> Proposals
+                                                {% if task.proposals.count %}<span class="badge text-bg-light border ms-1">{{ task.proposals.count }}</span>{% endif %}
+                                            </a>
+                                            {% if task.status == 'posted' %}
+                                                <a href="{% url 'task_edit' task.pk %}" class="btn btn-sm btn-outline-secondary">
                                                     <i class="bi bi-pencil"></i>
                                                 </a>
-                                                <form action="{% url 'task_delete' task.pk %}" method="post" class="d-inline ms-1"
+                                                <form action="{% url 'task_delete' task.pk %}" method="post" class="d-inline"
                                                       onsubmit="return confirm('Delete this task? This cannot be undone.');">
                                                     {% csrf_token %}
                                                     <button type="submit" class="btn btn-sm btn-outline-danger">
                                                         <i class="bi bi-trash"></i>
                                                     </button>
                                                 </form>
-                                            {% else %}
-                                                <span class="text-muted small ms-2">Locked</span>
                                             {% endif %}
                                         </td>
                                     </tr>
@@ -158,6 +205,82 @@
                     </div>
                 {% else %}
                     <p class="text-muted mb-0">You haven't posted any tasks yet. Use the form to create your first one.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ============================== MY PURCHASED ITEMS ============================== -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card shadow-sm rounded-3">
+            <div class="card-body p-4">
+                <h4 class="mb-3">My Purchased Items</h4>
+
+                {% if purchased_items %}
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle">
+                            <thead>
+                                <tr>
+                                    <th>Item</th>
+                                    <th>Price</th>
+                                    <th>Payment Method</th>
+                                    <th>Order Status</th>
+                                    <th>Tracking</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for order_item in purchased_items %}
+                                    <tr>
+                                        <td>
+                                            {{ order_item.item.item_name }}
+                                            <div class="text-muted small">Qty {{ order_item.quantity }} &middot; Order #{{ order_item.order.pk }}</div>
+                                        </td>
+                                        <td>&#2547;{{ order_item.subtotal }}</td>
+                                        <td>
+                                            {% with payment=order_item.order.payments.first %}
+                                                {% if payment %}
+                                                    {{ payment.get_payment_method_display }}
+                                                {% else %}
+                                                    <span class="text-muted small">&mdash;</span>
+                                                {% endif %}
+                                            {% endwith %}
+                                        </td>
+                                        <td>
+                                            {% if order_item.order.status == 'pending' %}
+                                                <span class="badge bg-warning text-dark">Pending Payment</span>
+                                            {% elif order_item.order.status == 'confirmed' %}
+                                                <span class="badge bg-info text-dark">Confirmed (COD)</span>
+                                            {% elif order_item.order.status == 'paid' %}
+                                                <span class="badge bg-success">Paid</span>
+                                            {% elif order_item.order.status == 'shipped' %}
+                                                <span class="badge bg-primary">Shipped</span>
+                                            {% elif order_item.order.status == 'delivered' %}
+                                                <span class="badge bg-success">Delivered</span>
+                                            {% else %}
+                                                <span class="badge bg-danger">Cancelled</span>
+                                            {% endif %}
+                                        </td>
+                                        <td class="small">
+                                            {% if order_item.order.status == 'shipped' %}
+                                                On the way
+                                            {% elif order_item.order.status == 'delivered' %}
+                                                Delivered
+                                            {% else %}
+                                                <span class="text-muted">Not yet shipped</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="text-muted mb-0">
+                        You haven't bought anything from the shop yet.
+                        <a href="{% url 'shop_catalog' %}">Browse the Creative Shop</a>.
+                    </p>
                 {% endif %}
             </div>
         </div>

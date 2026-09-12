@@ -207,25 +207,38 @@
                                         <td class="text-center">{{ order_item.quantity }}</td>
                                         <td class="small">{{ order_item.order.shipping_address }}</td>
                                         <td>
+                                            {# Badge colors per spec: pending=warning, confirmed=info, shipped=primary, paid/delivered=success #}
                                             {% if order_item.order.status == 'pending' %}
-                                                <span class="badge text-bg-secondary">Pending Payment</span>
+                                                <span class="badge bg-warning text-dark">Pending Payment</span>
+                                            {% elif order_item.order.status == 'confirmed' %}
+                                                <span class="badge bg-info text-dark">Confirmed (COD)</span>
                                             {% elif order_item.order.status == 'paid' %}
-                                                <span class="badge text-bg-warning">Paid &mdash; Ready to Ship</span>
+                                                <span class="badge bg-success">Paid &mdash; Ready to Ship</span>
                                             {% elif order_item.order.status == 'shipped' %}
-                                                <span class="badge text-bg-info">Shipped</span>
+                                                <span class="badge bg-primary">Shipped</span>
                                             {% elif order_item.order.status == 'delivered' %}
-                                                <span class="badge text-bg-success">Delivered</span>
+                                                <span class="badge bg-success">Delivered</span>
                                             {% else %}
-                                                <span class="badge text-bg-danger">Cancelled</span>
+                                                <span class="badge bg-danger">Cancelled</span>
                                             {% endif %}
                                         </td>
                                         <td class="text-end">
-                                            {% if order_item.order.status == 'paid' %}
-                                                <form action="{% url 'mark_order_completed' order_item.order.pk %}" method="post"
-                                                      onsubmit="return confirm('Mark this order as delivered and release payment?');">
+                                            {% if order_item.order.status == 'confirmed' or order_item.order.status == 'paid' %}
+                                                <!-- Step 1: confirmed/paid -> shipped -->
+                                                <form action="{% url 'update_order_status' order_item.order.pk %}" method="post"
+                                                      onsubmit="return confirm('Mark this order as shipped?');">
+                                                    {% csrf_token %}
+                                                    <button type="submit" class="btn btn-sm btn-primary">
+                                                        <i class="bi bi-truck"></i> Mark as Shipped
+                                                    </button>
+                                                </form>
+                                            {% elif order_item.order.status == 'shipped' %}
+                                                <!-- Step 2: shipped -> delivered (also closes the COD loop) -->
+                                                <form action="{% url 'update_order_status' order_item.order.pk %}" method="post"
+                                                      onsubmit="return confirm('Mark this order as delivered? This releases your payment.');">
                                                     {% csrf_token %}
                                                     <button type="submit" class="btn btn-sm btn-success">
-                                                        <i class="bi bi-check-circle"></i> Mark Delivered
+                                                        <i class="bi bi-check-circle"></i> Mark as Delivered
                                                     </button>
                                                 </form>
                                             {% else %}

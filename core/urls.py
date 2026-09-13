@@ -19,6 +19,7 @@ urlpatterns = [
 
     # --- Seeker: post & manage tasks ---------------------------------
     path("dashboard/seeker/", views.dashboard_seeker_view, name="dashboard_seeker"),
+    path("tasks/create/", views.create_task_view, name="create_task"),
     path("dashboard/seeker/tasks/<int:pk>/edit/", views.task_edit_view, name="task_edit"),
     path("dashboard/seeker/tasks/<int:pk>/delete/", views.task_delete_view, name="task_delete"),
 
@@ -40,6 +41,12 @@ urlpatterns = [
     path("admin/withdrawal/<int:pk>/process/", views.admin_process_withdrawal_view, name="admin_process_withdrawal"),
 
     # --- Creative Shop: browse, cart, checkout ------------------------
+    # "create/" is listed before "<int:pk>/" purely for readability —
+    # Django's <int:pk> converter only ever matches digits, so it
+    # couldn't accidentally swallow the literal word "create" even if
+    # the order were reversed, but keeping the specific path first
+    # makes the urlpatterns list easier to read top-to-bottom.
+    path("shop/item/create/", views.create_item_view, name="create_item"),
     path("shop/", views.shop_catalog_view, name="shop_catalog"),
     path("shop/item/<int:pk>/", views.item_detail_view, name="item_detail"),
     path("cart/", views.cart_view, name="cart_view"),
@@ -54,6 +61,9 @@ urlpatterns = [
 
     # --- Artist order fulfillment (shipping status + COD loop) ---------
     path("order/<int:order_id>/update-status/", views.update_order_status_view, name="update_order_status"),
+
+    # --- Ratings & reviews ----------------------------------------------
+    path("review/submit/", views.submit_review_view, name="submit_review"),
 
     # --- Wallet withdrawals -------------------------------------------
     path("wallet/withdraw/", views.request_withdrawal_view, name="request_withdrawal"),

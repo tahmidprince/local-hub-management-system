@@ -16,7 +16,7 @@ from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.db import IntegrityError, transaction
-from django.db.models import ProtectedError, Sum
+from django.db.models import Avg, ProtectedError, Sum
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 
@@ -34,6 +34,7 @@ from .models import (
     Order,
     OrderItem,
     Payment,
+    Review,
     TaskProposal,
     User,
     WithdrawalRequest,
@@ -196,8 +197,21 @@ def dashboard_seeker_view(request):
     # --- "My Purchased Items" table --------------------------------------
     purchased_items = (
         OrderItem.objects.filter(order__buyer=request.user)
-        .select_related("order", "item")
+        .select_related("order", "item", "item__artist")
         .order_by("-order__created_at")
+    )
+
+    # --- Review tracking --------------------------------------------------
+    # Simple sets of "which order/task IDs has this seeker already left
+    # a review for". The template checks against these to decide
+    # whether to show a "Leave Review" button or a "Reviewed" badge.
+    reviewed_order_ids = set(
+        Review.objects.filter(reviewer=request.user, order__isnull=False)
+        .values_list("order_id", flat=True)
+    )
+    reviewed_task_ids = set(
+        Review.objects.filter(reviewer=request.user, task__isnull=False)
+        .values_list("task_id", flat=True)
     )
 
     return render(request, "dashboards/seeker.html", {
@@ -208,6 +222,8 @@ def dashboard_seeker_view(request):
         "completed_tasks_count": completed_tasks_count,
         "total_spent": total_spent,
         "purchased_items": purchased_items,
+        "reviewed_order_ids": reviewed_order_ids,
+        "reviewed_task_ids": reviewed_task_ids,
     })
 
 
@@ -251,6 +267,56 @@ def task_delete_view(request, pk):
             messages.success(request, f'"{title}" was deleted.')
 
     return redirect("dashboard_seeker")
+
+
+@role_required(["seeker"])
+def create_task_view(request):
+    """
+    Standalone "Post a New Task" page (Step 11) — a dedicated URL a
+    seeker can be linked to, separate from the dashboard itself.
+
+    ROLE CHECK: handled by the existing `@role_required(["seeker"])`
+    decorator above (built back in Step 1) rather than a hand-written
+    `if request.user.role != 'seeker'` check in the view body — it's
+    the same access-control logic the rest of the app already uses
+    and already has redirect/messaging behaviour built in, so reusing
+    it here keeps this one consistent with everywhere else instead of
+    inventing a second way to do the same check.
+
+    FORM REUSE — WHY THERE'S NO SEPARATE "TaskForm": the WorkEntry
+    model requires `sub_category` and `location` (no default, not
+    nullable) alongside `title`/`description`/`budget`/`category`. A
+    form with only the four fields named in the spec would raise a
+    database error the moment it tried to save, since two required
+    columns would be missing. `WorkEntryForm` (Step 3) already has the
+    correct full field set, so this view reuses it rather than
+    building a second, narrower form that can't actually work.
+
+    STATUS: the spec says to set status to 'open', but WorkEntry has
+    no 'open' status — its choices are posted/assigned/in_progress/
+    completed/cancelled. Nothing needs to be set here: `status` isn't
+    on the form at all (WorkEntryForm excludes it), and the model
+    already defaults new tasks to 'posted' on its own (Step 2).
+    """
+    if request.method == "POST":
+        form = WorkEntryForm(request.POST)
+        if form.is_valid():
+            # commit=False builds the WorkEntry in memory WITHOUT
+            # writing it to the database yet. That gives us a chance
+            # to set `seeker` — a field that isn't on the form at all,
+            # specifically so nobody submitting this form could ever
+            # type someone else's ID into it and post a task "as" them.
+            # Only after that's set do we call the real .save().
+            task = form.save(commit=False)
+            task.seeker = request.user
+            task.save()
+            messages.success(request, f'"{task.title}" was posted successfully.')
+            return redirect("dashboard_seeker")
+        messages.error(request, "Please fix the errors below and try again.")
+    else:
+        form = WorkEntryForm()
+
+    return render(request, "tasks/create_task.html", {"form": form})
 
 
 # =====================================================================
@@ -348,6 +414,62 @@ def item_toggle_active_view(request, pk):
         messages.success(request, f'"{item.item_name}" is now {state}.')
 
     return redirect("dashboard_artist")
+
+
+@role_required(["artist"])
+def create_item_view(request):
+    """
+    Standalone "Add New Product" page (Step 11) — a dedicated URL an
+    artist can be linked to, separate from the dashboard itself.
+
+    ROLE CHECK: same reasoning as create_task_view above — this uses
+    the existing `@role_required(["artist"])` decorator rather than a
+    hand-written `if request.user.role != 'artist'` check, so every
+    artist-only view in the app enforces access the same way.
+
+    FIELD NAMES: the spec calls for `title` and `stock`, but the real
+    CreativeItem model names them `item_name` and `stock_quantity`.
+    `CreativeItemForm` (Step 3) already targets the model's actual
+    field names, so this view reuses it rather than building a second
+    form around field names that don't exist on the model.
+
+    IMAGE UPLOAD HANDLING: an uploaded file never shows up in
+    `request.POST` — Django puts it in a completely separate
+    `request.FILES` dictionary. That's why the form below is built as
+    `CreativeItemForm(request.POST, request.FILES)`, passing BOTH.
+    The <form> tag in create_item.html also has to carry
+    enctype="multipart/form-data", or the browser won't even attach
+    the file to the request in the first place — Django's `request.FILES`
+    would just be empty no matter what the view does with it.
+    """
+    if request.method == "POST":
+        form = CreativeItemForm(request.POST, request.FILES)
+        if form.is_valid():
+            # Same commit=False pattern as task creation: build the
+            # CreativeItem in memory first so we can attach `artist`
+            # (not on the form — an artist should never be able to
+            # list a product under someone else's name) before the
+            # real .save() writes it to the database.
+            item = form.save(commit=False)
+            item.artist = request.user
+            # New listings always need admin sign-off before they show
+            # up in the public shop (Step 7). CreativeItem.is_approved
+            # already defaults to False on the model, but setting it
+            # explicitly here — rather than relying silently on that
+            # default — makes the moderation requirement obvious to
+            # anyone reading this view.
+            item.is_approved = False
+            item.save()
+            messages.success(
+                request,
+                f'"{item.item_name}" was submitted and is awaiting admin approval.'
+            )
+            return redirect("dashboard_artist")
+        messages.error(request, "Please fix the errors below and try again.")
+    else:
+        form = CreativeItemForm()
+
+    return render(request, "shop/create_item.html", {"form": form})
 
 
 # =====================================================================
@@ -1129,6 +1251,152 @@ def update_order_status_view(request, order_id):
             f"('{order.get_status_display()}')."
         )
         return redirect("dashboard_artist")
+
+
+# =====================================================================
+# PART 12 — RATINGS & REVIEWS
+# =====================================================================
+
+
+def _update_profile_average_rating(user):
+    """
+    Recalculate `user`'s Profile.rating from scratch, as the simple
+    average of every Review they've ever received.
+
+    "Simple average" just means: add up every rating they've gotten,
+    divide by how many reviews there are. For example, three reviews
+    of 5, 4, and 3 stars: (5 + 4 + 3) / 3 = 4.0 average.
+
+    Django's Avg() aggregate does exactly that arithmetic for us at
+    the database level — it's the SQL equivalent of AVG(rating) — so
+    we don't have to loop over every Review in Python and add them up
+    by hand. We call it fresh every time a new review comes in, so the
+    Profile.rating field always reflects every review that exists at
+    that moment, not just the new one.
+    """
+    result = Review.objects.filter(reviewed_user=user).aggregate(
+        average=Avg("rating")
+    )
+    average = result["average"]  # None if this user has zero reviews
+
+    profile = user.profile
+
+    if average is None:
+        # No reviews at all yet — fall back to the default rating
+        # rather than leaving Profile.rating at some stale old value.
+        profile.rating = Decimal("5.00")
+    else:
+        # Avg() returns a plain float — round it to 2 decimal places so
+        # it fits Profile.rating's DecimalField(max_digits=3, decimal_places=2).
+        profile.rating = round(Decimal(str(average)), 2)
+
+    profile.save(update_fields=["rating"])
+
+
+@role_required(["seeker"])
+def submit_review_view(request):
+    """
+    Lets a Seeker leave a 1-5 star review (with an optional comment)
+    on EITHER a delivered shop Order OR a completed task, and updates
+    the reviewed user's average Profile.rating afterward.
+
+    Expected POST fields:
+        target_user_id  - who is being reviewed
+        order_id        - set for a shop-order review (mutually
+        task_id         - exclusive with task_id — the template only
+                           ever submits one of the two)
+        rating          - an integer 1-5
+        comment         - optional free text
+    """
+    if request.method != "POST":
+        return redirect("role_dispatch")
+
+    target_user_id = request.POST.get("target_user_id")
+    order_id = request.POST.get("order_id")
+    task_id = request.POST.get("task_id")
+
+    target_user = get_object_or_404(User, pk=target_user_id)
+
+    # --- Validate the star rating is a whole number from 1 to 5 --------
+    try:
+        rating = int(request.POST.get("rating", ""))
+    except (TypeError, ValueError):
+        messages.error(request, "Please choose a rating between 1 and 5 stars.")
+        return redirect("dashboard_seeker")
+
+    if rating < 1 or rating > 5:
+        messages.error(request, "Rating must be between 1 and 5 stars.")
+        return redirect("dashboard_seeker")
+
+    comment = request.POST.get("comment", "").strip()
+
+    order = None
+    task = None
+
+    if order_id:
+        # Only the buyer of THIS order can review it, and only once
+        # it's actually been delivered — reviewing something that
+        # never arrived wouldn't mean much.
+        order = get_object_or_404(Order, pk=order_id, buyer=request.user)
+
+        if order.status != Order.Status.DELIVERED:
+            messages.error(request, "You can only review an order after it's been delivered.")
+            return redirect("dashboard_seeker")
+
+        # Make sure target_user_id actually matches an artist who sold
+        # something in THIS order — otherwise a seeker could type any
+        # user's ID into the hidden form field and rate a stranger.
+        order_artist_ids = order.items.values_list("item__artist_id", flat=True)
+        if target_user.id not in order_artist_ids:
+            messages.error(request, "That user isn't associated with this order.")
+            return redirect("dashboard_seeker")
+
+        # One review per seeker per order — checked here in Python
+        # rather than as a DB constraint, since MySQL can't enforce a
+        # *conditional* unique constraint (see the note in models.py).
+        if Review.objects.filter(reviewer=request.user, order=order).exists():
+            messages.error(request, "You've already reviewed this order.")
+            return redirect("dashboard_seeker")
+
+    elif task_id:
+        # Only the seeker who POSTED this task can review it, and only
+        # once it's marked completed.
+        task = get_object_or_404(WorkEntry, pk=task_id, seeker=request.user)
+
+        if task.status != WorkEntry.Status.COMPLETED:
+            messages.error(request, "You can only review a task after it's been completed.")
+            return redirect("dashboard_seeker")
+
+        if target_user.id != task.provider_id:
+            messages.error(request, "That user isn't associated with this task.")
+            return redirect("dashboard_seeker")
+
+        if Review.objects.filter(reviewer=request.user, task=task).exists():
+            messages.error(request, "You've already reviewed this task.")
+            return redirect("dashboard_seeker")
+
+    else:
+        messages.error(request, "No order or task was specified for this review.")
+        return redirect("dashboard_seeker")
+
+    # --- Everything checks out — save the review ------------------------
+    Review.objects.create(
+        reviewer=request.user,
+        reviewed_user=target_user,
+        order=order,
+        task=task,
+        rating=rating,
+        comment=comment,
+    )
+
+    # Recalculate the target user's average rating now that there's
+    # one more review counted in it.
+    _update_profile_average_rating(target_user)
+
+    messages.success(
+        request, f"Thanks! Your review for {target_user.full_name} has been submitted."
+    )
+    return redirect("dashboard_seeker")
 
 
 # =====================================================================

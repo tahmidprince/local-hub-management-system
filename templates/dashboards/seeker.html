@@ -46,92 +46,104 @@
 
     <!-- Post / Edit task form -->
     <div class="col-lg-5">
-        <div class="card shadow-sm rounded-3">
-            <div class="card-body p-4">
-                <h4 class="mb-1">
-                    {% if editing_task %}Edit Task{% else %}Post a New Task{% endif %}
-                </h4>
-                <p class="text-muted small mb-4">
-                    {% if editing_task %}
+        {% if editing_task %}
+            <!-- EDIT mode: this is the exact same form used for creating a
+                 task (Step 3) — task_edit_view reuses it with an existing
+                 task instance, which is why it's kept here rather than
+                 moved to the new standalone create page below. -->
+            <div class="card shadow-sm rounded-3">
+                <div class="card-body p-4">
+                    <h4 class="mb-1">Edit Task</h4>
+                    <p class="text-muted small mb-4">
                         Updating "{{ editing_task.title }}".
-                    {% else %}
-                        Describe what you need and set a budget — providers will bid on it.
+                    </p>
+
+                    {% if form.non_field_errors %}
+                        <div class="alert alert-danger">
+                            {% for error in form.non_field_errors %}
+                                <div>{{ error }}</div>
+                            {% endfor %}
+                        </div>
                     {% endif %}
-                </p>
 
-                {% if form.non_field_errors %}
-                    <div class="alert alert-danger">
-                        {% for error in form.non_field_errors %}
-                            <div>{{ error }}</div>
-                        {% endfor %}
-                    </div>
-                {% endif %}
+                    <form method="post" action="{% url 'task_edit' editing_task.pk %}" novalidate>
+                        {% csrf_token %}
 
-                <form method="post"
-                      action="{% if editing_task %}{% url 'task_edit' editing_task.pk %}{% else %}{% url 'dashboard_seeker' %}{% endif %}"
-                      novalidate>
-                    {% csrf_token %}
-
-                    <div class="mb-3">
-                        <label for="{{ form.title.id_for_label }}" class="form-label">Title</label>
-                        {{ form.title }}
-                        {% for error in form.title.errors %}
-                            <div class="text-danger small mt-1">{{ error }}</div>
-                        {% endfor %}
-                    </div>
-
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label for="{{ form.category.id_for_label }}" class="form-label">Category</label>
-                            {{ form.category }}
-                            {% for error in form.category.errors %}
+                        <div class="mb-3">
+                            <label for="{{ form.title.id_for_label }}" class="form-label">Title</label>
+                            {{ form.title }}
+                            {% for error in form.title.errors %}
                                 <div class="text-danger small mt-1">{{ error }}</div>
                             {% endfor %}
                         </div>
-                        <div class="col-md-6 mb-3">
-                            <label for="{{ form.sub_category.id_for_label }}" class="form-label">Sub-category</label>
-                            {{ form.sub_category }}
-                            {% for error in form.sub_category.errors %}
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="{{ form.category.id_for_label }}" class="form-label">Category</label>
+                                {{ form.category }}
+                                {% for error in form.category.errors %}
+                                    <div class="text-danger small mt-1">{{ error }}</div>
+                                {% endfor %}
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="{{ form.sub_category.id_for_label }}" class="form-label">Sub-category</label>
+                                {{ form.sub_category }}
+                                {% for error in form.sub_category.errors %}
+                                    <div class="text-danger small mt-1">{{ error }}</div>
+                                {% endfor %}
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="{{ form.budget.id_for_label }}" class="form-label">Budget (BDT)</label>
+                            {{ form.budget }}
+                            {% for error in form.budget.errors %}
                                 <div class="text-danger small mt-1">{{ error }}</div>
                             {% endfor %}
                         </div>
-                    </div>
 
-                    <div class="mb-3">
-                        <label for="{{ form.budget.id_for_label }}" class="form-label">Budget (BDT)</label>
-                        {{ form.budget }}
-                        {% for error in form.budget.errors %}
-                            <div class="text-danger small mt-1">{{ error }}</div>
-                        {% endfor %}
-                    </div>
+                        <div class="mb-3">
+                            <label for="{{ form.location.id_for_label }}" class="form-label">Location</label>
+                            {{ form.location }}
+                            {% for error in form.location.errors %}
+                                <div class="text-danger small mt-1">{{ error }}</div>
+                            {% endfor %}
+                        </div>
 
-                    <div class="mb-3">
-                        <label for="{{ form.location.id_for_label }}" class="form-label">Location</label>
-                        {{ form.location }}
-                        {% for error in form.location.errors %}
-                            <div class="text-danger small mt-1">{{ error }}</div>
-                        {% endfor %}
-                    </div>
+                        <div class="mb-3">
+                            <label for="{{ form.description.id_for_label }}" class="form-label">Description</label>
+                            {{ form.description }}
+                            {% for error in form.description.errors %}
+                                <div class="text-danger small mt-1">{{ error }}</div>
+                            {% endfor %}
+                        </div>
 
-                    <div class="mb-3">
-                        <label for="{{ form.description.id_for_label }}" class="form-label">Description</label>
-                        {{ form.description }}
-                        {% for error in form.description.errors %}
-                            <div class="text-danger small mt-1">{{ error }}</div>
-                        {% endfor %}
-                    </div>
-
-                    <div class="d-flex gap-2">
-                        <button type="submit" class="btn btn-primary flex-fill">
-                            {% if editing_task %}Save Changes{% else %}Post Task{% endif %}
-                        </button>
-                        {% if editing_task %}
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-primary flex-fill">Save Changes</button>
                             <a href="{% url 'dashboard_seeker' %}" class="btn btn-outline-secondary">Cancel</a>
-                        {% endif %}
-                    </div>
-                </form>
+                        </div>
+                    </form>
+                </div>
             </div>
-        </div>
+        {% else %}
+            <!-- CREATE mode: Step 11 moved task creation to its own
+                 dedicated page (/tasks/create/) instead of an inline
+                 form here, so there's exactly one place to post a new
+                 task rather than two different forms doing the same
+                 thing on two different pages. -->
+            <div class="card shadow-sm rounded-3">
+                <div class="card-body p-4 text-center">
+                    <i class="bi bi-clipboard-plus display-6 text-primary"></i>
+                    <h4 class="mt-2 mb-2">Need something done?</h4>
+                    <p class="text-muted mb-3">
+                        Post a task and providers will start bidding on it.
+                    </p>
+                    <a href="{% url 'create_task' %}" class="btn btn-primary">
+                        <i class="bi bi-plus-circle"></i> Post New Task
+                    </a>
+                </div>
+            </div>
+        {% endif %}
     </div>
 
     <!-- Posted tasks list -->
@@ -196,6 +208,56 @@
                                                         <i class="bi bi-trash"></i>
                                                     </button>
                                                 </form>
+                                            {% elif task.status == 'completed' and task.provider %}
+                                                {% if task.pk in reviewed_task_ids %}
+                                                    <span class="badge bg-light text-dark border">
+                                                        <i class="bi bi-check-circle"></i> Reviewed
+                                                    </span>
+                                                {% else %}
+                                                    <button type="button" class="btn btn-sm btn-outline-warning"
+                                                            data-bs-toggle="modal" data-bs-target="#reviewTaskModal{{ task.pk }}">
+                                                        <i class="bi bi-star"></i> Leave Review
+                                                    </button>
+
+                                                    <!-- Review modal: rate the provider who did this task -->
+                                                    <div class="modal fade" id="reviewTaskModal{{ task.pk }}" tabindex="-1" aria-hidden="true">
+                                                        <div class="modal-dialog">
+                                                            <div class="modal-content">
+                                                                <form method="post" action="{% url 'submit_review' %}">
+                                                                    {% csrf_token %}
+                                                                    <input type="hidden" name="target_user_id" value="{{ task.provider.pk }}">
+                                                                    <input type="hidden" name="task_id" value="{{ task.pk }}">
+                                                                    <div class="modal-header">
+                                                                        <h5 class="modal-title">Review {{ task.provider.full_name }}</h5>
+                                                                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                                                    </div>
+                                                                    <div class="modal-body">
+                                                                        <div class="mb-3">
+                                                                            <label class="form-label">Rating</label>
+                                                                            <select name="rating" class="form-select" required>
+                                                                                <option value="" selected disabled>Choose a rating&hellip;</option>
+                                                                                <option value="5">5 &mdash; Excellent</option>
+                                                                                <option value="4">4 &mdash; Good</option>
+                                                                                <option value="3">3 &mdash; Average</option>
+                                                                                <option value="2">2 &mdash; Below Average</option>
+                                                                                <option value="1">1 &mdash; Poor</option>
+                                                                            </select>
+                                                                        </div>
+                                                                        <div class="mb-3">
+                                                                            <label class="form-label">Comment (optional)</label>
+                                                                            <textarea name="comment" class="form-control" rows="3"
+                                                                                      placeholder="How did {{ task.provider.full_name }} do?"></textarea>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div class="modal-footer">
+                                                                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                                                                        <button type="submit" class="btn btn-primary">Submit Review</button>
+                                                                    </div>
+                                                                </form>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                {% endif %}
                                             {% endif %}
                                         </td>
                                     </tr>
@@ -228,6 +290,7 @@
                                     <th>Payment Method</th>
                                     <th>Order Status</th>
                                     <th>Tracking</th>
+                                    <th class="text-end">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -269,6 +332,66 @@
                                                 Delivered
                                             {% else %}
                                                 <span class="text-muted">Not yet shipped</span>
+                                            {% endif %}
+                                        </td>
+                                        <td class="text-end">
+                                            {% if order_item.order.status == 'delivered' %}
+                                                {% if order_item.order.pk in reviewed_order_ids %}
+                                                    <span class="badge bg-light text-dark border">
+                                                        <i class="bi bi-check-circle"></i> Reviewed
+                                                    </span>
+                                                {% else %}
+                                                    <button type="button" class="btn btn-sm btn-outline-warning"
+                                                            data-bs-toggle="modal" data-bs-target="#reviewOrderModal{{ order_item.order.pk }}">
+                                                        <i class="bi bi-star"></i> Leave Review
+                                                    </button>
+
+                                                    <!-- Review modal: rate the artist who sold this item.
+                                                         Note: if an order ever contains items from more than
+                                                         one artist, this button appears on each of that
+                                                         order's rows (one modal per artist) — a known,
+                                                         accepted simplification for a single "review the
+                                                         order" flow; most orders here only have one artist. -->
+                                                    <div class="modal fade" id="reviewOrderModal{{ order_item.order.pk }}" tabindex="-1" aria-hidden="true">
+                                                        <div class="modal-dialog">
+                                                            <div class="modal-content">
+                                                                <form method="post" action="{% url 'submit_review' %}">
+                                                                    {% csrf_token %}
+                                                                    <input type="hidden" name="target_user_id" value="{{ order_item.item.artist.pk }}">
+                                                                    <input type="hidden" name="order_id" value="{{ order_item.order.pk }}">
+                                                                    <div class="modal-header">
+                                                                        <h5 class="modal-title">Review {{ order_item.item.artist.full_name }}</h5>
+                                                                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                                                    </div>
+                                                                    <div class="modal-body">
+                                                                        <div class="mb-3">
+                                                                            <label class="form-label">Rating</label>
+                                                                            <select name="rating" class="form-select" required>
+                                                                                <option value="" selected disabled>Choose a rating&hellip;</option>
+                                                                                <option value="5">5 &mdash; Excellent</option>
+                                                                                <option value="4">4 &mdash; Good</option>
+                                                                                <option value="3">3 &mdash; Average</option>
+                                                                                <option value="2">2 &mdash; Below Average</option>
+                                                                                <option value="1">1 &mdash; Poor</option>
+                                                                            </select>
+                                                                        </div>
+                                                                        <div class="mb-3">
+                                                                            <label class="form-label">Comment (optional)</label>
+                                                                            <textarea name="comment" class="form-control" rows="3"
+                                                                                      placeholder="How was {{ order_item.item.item_name }}?"></textarea>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div class="modal-footer">
+                                                                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                                                                        <button type="submit" class="btn btn-primary">Submit Review</button>
+                                                                    </div>
+                                                                </form>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                {% endif %}
+                                            {% else %}
+                                                <span class="text-muted small">&mdash;</span>
                                             {% endif %}
                                         </td>
                                     </tr>

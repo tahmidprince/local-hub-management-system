@@ -29,87 +29,101 @@
 
             <!-- Add / Edit item form -->
             <div class="col-lg-4">
-                <div class="card">
-                    <div class="card-body p-4">
-                        <h4 class="mb-1">
-                            {% if editing_item %}Edit Item{% else %}Add New Shop Item{% endif %}
-                        </h4>
-                        <p class="text-muted small mb-4">
-                            {% if editing_item %}
+                {% if editing_item %}
+                    <!-- EDIT mode: this is the exact same form used for
+                         creating an item (Step 3) — item_edit_view reuses
+                         it with an existing item instance, which is why
+                         it's kept here rather than moved to the new
+                         standalone create page below. -->
+                    <div class="card">
+                        <div class="card-body p-4">
+                            <h4 class="mb-1">Edit Item</h4>
+                            <p class="text-muted small mb-4">
                                 Updating "{{ editing_item.item_name }}".
-                            {% else %}
-                                List a new piece in your Creative Shop. New items need admin approval before they go live.
+                            </p>
+
+                            {% if form.non_field_errors %}
+                                <div class="alert alert-danger">
+                                    {% for error in form.non_field_errors %}
+                                        <div>{{ error }}</div>
+                                    {% endfor %}
+                                </div>
                             {% endif %}
-                        </p>
 
-                        {% if form.non_field_errors %}
-                            <div class="alert alert-danger">
-                                {% for error in form.non_field_errors %}
-                                    <div>{{ error }}</div>
-                                {% endfor %}
-                            </div>
-                        {% endif %}
+                            <form method="post" action="{% url 'item_edit' editing_item.pk %}"
+                                  enctype="multipart/form-data" novalidate>
+                                {% csrf_token %}
 
-                        <form method="post"
-                              action="{% if editing_item %}{% url 'item_edit' editing_item.pk %}{% else %}{% url 'dashboard_artist' %}{% endif %}"
-                              enctype="multipart/form-data" novalidate>
-                            {% csrf_token %}
-
-                            <div class="mb-3">
-                                <label for="{{ form.item_name.id_for_label }}" class="form-label">Item name</label>
-                                {{ form.item_name }}
-                                {% for error in form.item_name.errors %}
-                                    <div class="text-danger small mt-1">{{ error }}</div>
-                                {% endfor %}
-                            </div>
-
-                            <div class="mb-3">
-                                <label for="{{ form.description.id_for_label }}" class="form-label">Description</label>
-                                {{ form.description }}
-                                {% for error in form.description.errors %}
-                                    <div class="text-danger small mt-1">{{ error }}</div>
-                                {% endfor %}
-                            </div>
-
-                            <div class="row">
-                                <div class="col-6 mb-3">
-                                    <label for="{{ form.price.id_for_label }}" class="form-label">Price (BDT)</label>
-                                    {{ form.price }}
-                                    {% for error in form.price.errors %}
+                                <div class="mb-3">
+                                    <label for="{{ form.item_name.id_for_label }}" class="form-label">Item name</label>
+                                    {{ form.item_name }}
+                                    {% for error in form.item_name.errors %}
                                         <div class="text-danger small mt-1">{{ error }}</div>
                                     {% endfor %}
                                 </div>
-                                <div class="col-6 mb-3">
-                                    <label for="{{ form.stock_quantity.id_for_label }}" class="form-label">Stock</label>
-                                    {{ form.stock_quantity }}
-                                    {% for error in form.stock_quantity.errors %}
+
+                                <div class="mb-3">
+                                    <label for="{{ form.description.id_for_label }}" class="form-label">Description</label>
+                                    {{ form.description }}
+                                    {% for error in form.description.errors %}
                                         <div class="text-danger small mt-1">{{ error }}</div>
                                     {% endfor %}
                                 </div>
-                            </div>
 
-                            <div class="mb-3">
-                                <label for="{{ form.image.id_for_label }}" class="form-label">Photo</label>
-                                {{ form.image }}
-                                {% for error in form.image.errors %}
-                                    <div class="text-danger small mt-1">{{ error }}</div>
-                                {% endfor %}
-                                {% if editing_item and editing_item.image %}
-                                    <div class="form-text">Leave blank to keep the current photo.</div>
-                                {% endif %}
-                            </div>
+                                <div class="row">
+                                    <div class="col-6 mb-3">
+                                        <label for="{{ form.price.id_for_label }}" class="form-label">Price (BDT)</label>
+                                        {{ form.price }}
+                                        {% for error in form.price.errors %}
+                                            <div class="text-danger small mt-1">{{ error }}</div>
+                                        {% endfor %}
+                                    </div>
+                                    <div class="col-6 mb-3">
+                                        <label for="{{ form.stock_quantity.id_for_label }}" class="form-label">Stock</label>
+                                        {{ form.stock_quantity }}
+                                        {% for error in form.stock_quantity.errors %}
+                                            <div class="text-danger small mt-1">{{ error }}</div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
 
-                            <div class="d-flex gap-2">
-                                <button type="submit" class="btn btn-primary flex-fill">
-                                    {% if editing_item %}Save Changes{% else %}Add Item{% endif %}
-                                </button>
-                                {% if editing_item %}
+                                <div class="mb-3">
+                                    <label for="{{ form.image.id_for_label }}" class="form-label">Photo</label>
+                                    {{ form.image }}
+                                    {% for error in form.image.errors %}
+                                        <div class="text-danger small mt-1">{{ error }}</div>
+                                    {% endfor %}
+                                    {% if editing_item.image %}
+                                        <div class="form-text">Leave blank to keep the current photo.</div>
+                                    {% endif %}
+                                </div>
+
+                                <div class="d-flex gap-2">
+                                    <button type="submit" class="btn btn-primary flex-fill">Save Changes</button>
                                     <a href="{% url 'dashboard_artist' %}" class="btn btn-outline-secondary">Cancel</a>
-                                {% endif %}
-                            </div>
-                        </form>
+                                </div>
+                            </form>
+                        </div>
                     </div>
-                </div>
+                {% else %}
+                    <!-- CREATE mode: Step 11 moved item creation to its own
+                         dedicated page (/shop/item/create/) instead of an
+                         inline form here, so there's exactly one place to
+                         add a new product rather than two different forms
+                         doing the same thing on two different pages. -->
+                    <div class="card">
+                        <div class="card-body p-4 text-center">
+                            <i class="bi bi-bag-plus display-6 text-primary"></i>
+                            <h4 class="mt-2 mb-2">Got something to sell?</h4>
+                            <p class="text-muted mb-3">
+                                List a new piece in your Creative Shop. New items need admin approval before they go live.
+                            </p>
+                            <a href="{% url 'create_item' %}" class="btn btn-primary">
+                                <i class="bi bi-plus-circle"></i> Add New Product
+                            </a>
+                        </div>
+                    </div>
+                {% endif %}
             </div>
 
             <!-- Inventory grid -->

@@ -10,7 +10,7 @@ Part 2 (new):       task posting & bidding, the Creative Shop, and the
 """
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from .managers import UserManager
@@ -460,3 +460,67 @@ class WithdrawalRequest(models.Model):
 
     def __str__(self):
         return f"{self.user} — \u09f3{self.amount} ({self.get_status_display()})"
+
+
+class Review(models.Model):
+    """
+    A 1-to-5 star rating (with an optional comment) that a Seeker
+    leaves for the Provider or Artist on the other side of a
+    completed Task or a delivered Order.
+
+    NOTE: the spec for this step called the task FK's target model
+    "Task", but there is no model literally named that — the task
+    model built back in Step 2 is `WorkEntry`. This FK points at
+    WorkEntry, since that's the model that actually exists.
+    """
+    reviewer = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="reviews_given",
+        help_text="The Seeker who wrote this review.",
+    )
+    reviewed_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="reviews_received",
+        help_text="The Provider or Artist being reviewed.",
+    )
+    # Exactly one of these two should be set — a review is either for
+    # a completed task or a delivered order, never both, never neither.
+    # (Enforced by the CheckConstraint below; MySQL 8.0.16+ supports
+    # CHECK constraints, same as the Payment model's equivalent rule.)
+    order = models.ForeignKey(
+        Order, on_delete=models.SET_NULL, null=True, blank=True, related_name="reviews"
+    )
+    task = models.ForeignKey(
+        WorkEntry, on_delete=models.SET_NULL, null=True, blank=True, related_name="reviews"
+    )
+    rating = models.IntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(5)],
+        help_text="1 to 5 stars.",
+    )
+    comment = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Review"
+        verbose_name_plural = "Reviews"
+        ordering = ["-created_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(order__isnull=False) | models.Q(task__isnull=False),
+                name="review_must_reference_order_or_task",
+            ),
+        ]
+        # NOTE ON "ONE REVIEW PER ORDER/TASK": a conditional
+        # UniqueConstraint (fields=['reviewer','order'], condition=...)
+        # would be the natural DB-level way to stop a seeker reviewing
+        # the same order twice, BUT MySQL does not support unique
+        # constraints with a WHERE condition — Django raises
+        # NotSupportedError trying to migrate that on the MySQL
+        # backend this project actually runs on. So that rule is
+        # enforced in submit_review_view instead (a plain .exists()
+        # check before creating the Review) rather than here.
+
+    def __str__(self):
+        return f"{self.reviewer} rated {self.reviewed_user}: {self.rating}/5"

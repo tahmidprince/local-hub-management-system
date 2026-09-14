@@ -48,7 +48,16 @@ ROLE_DASHBOARD_URLS = {
     "admin": "dashboard_admin",
 }
 
+def home_view(request):
+    """Renders the public landing page showcasing platform features and recent activity."""
+    # Fetch latest approved shop items and open tasks for visitors to preview
+    featured_items = CreativeItem.objects.filter(is_approved=True).order_by('-created_at')[:4]
+    recent_tasks = WorkEntry.objects.filter(status=WorkEntry.Status.POSTED).order_by('-created_at')[:3]
 
+    return render(request, 'home.html', {
+        'featured_items': featured_items,
+        'recent_tasks': recent_tasks,
+    })
 # =====================================================================
 # PART 1 — AUTH
 # =====================================================================

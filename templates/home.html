@@ -1,0 +1,318 @@
+{% extends "base.html" %}
+{% block title %}LocalHub — Trusted Local Help &amp; Handmade Goods{% endblock %}
+
+{% block extra_css %}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet">
+<style>
+    :root {
+        --lh-indigo-900: #17213f;
+        --lh-indigo-700: #223466;
+        --lh-indigo-500: #33488c;
+        --lh-gold-500: #c8932b;
+        --lh-gold-400: #dba848;
+    }
+
+    .lh-display {
+        font-family: "Fraunces", Georgia, serif;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+    }
+
+    /* ---------------- HERO ---------------- */
+    .lh-hero {
+        background:
+            radial-gradient(ellipse 900px 480px at 85% -10%, rgba(200, 147, 43, 0.35), transparent 60%),
+            linear-gradient(150deg, var(--lh-indigo-900) 0%, var(--lh-indigo-700) 62%, var(--lh-indigo-500) 100%);
+        color: #eef1f8;
+        padding: 3.25rem 2.5rem;
+        position: relative;
+        overflow: hidden;
+    }
+    .lh-hero h1 {
+        font-size: clamp(2rem, 1.35rem + 2.6vw, 3.1rem);
+        line-height: 1.08;
+        color: #ffffff;
+        max-width: 16ch;
+    }
+    .lh-hero p.lead {
+        color: #c7cee5;
+        max-width: 46ch;
+        font-size: 1.08rem;
+    }
+    .lh-hero .btn-gold {
+        background-color: var(--lh-gold-500);
+        border-color: var(--lh-gold-500);
+        color: #1a1305;
+        font-weight: 600;
+    }
+    .lh-hero .btn-gold:hover {
+        background-color: var(--lh-gold-400);
+        border-color: var(--lh-gold-400);
+        color: #1a1305;
+    }
+    .lh-hero .btn-outline-light:hover {
+        color: var(--lh-indigo-900);
+    }
+
+    /* Three trust pillars — parallel facts, not a sequence, so no numbering */
+    .lh-pillars {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1.25rem;
+        margin-top: 2.25rem;
+        padding-top: 1.75rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.14);
+    }
+    .lh-pillar-icon {
+        width: 2.35rem;
+        height: 2.35rem;
+        border-radius: 0.65rem;
+        background: rgba(255, 255, 255, 0.1);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.15rem;
+        color: var(--lh-gold-400);
+        flex-shrink: 0;
+    }
+    .lh-pillar-title { color: #fff; font-weight: 600; font-size: 0.95rem; }
+    .lh-pillar-text { color: #b6bfdb; font-size: 0.85rem; line-height: 1.4; margin-bottom: 0; }
+
+    @media (max-width: 767.98px) {
+        .lh-hero { padding: 2.25rem 1.5rem; }
+        .lh-pillars { grid-template-columns: 1fr; }
+    }
+
+    /* ---------------- HOW IT WORKS ---------------- */
+    .lh-step-num {
+        font-family: "Fraunces", Georgia, serif;
+        font-size: 2.1rem;
+        font-weight: 600;
+        color: var(--lh-indigo-500);
+        line-height: 1;
+    }
+    .lh-step-line {
+        flex: 1;
+        height: 1px;
+        background: linear-gradient(90deg, #d7dcec, transparent);
+        margin-top: 1.05rem;
+    }
+
+    /* ---------------- SECTION HEADINGS ---------------- */
+    .lh-section-heading {
+        font-size: 1.6rem;
+        color: #1c2333;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- ============================== HERO ============================== -->
+<section class="lh-hero rounded-4 shadow-sm mb-5">
+    <div class="row align-items-center g-4">
+        <div class="col-lg-8">
+            <h1 class="lh-display mb-3">Get things done, or discover something handmade.</h1>
+            <p class="lead mb-4">
+                LocalHub connects you with vetted local pros for everyday jobs, and with
+                independent artisans selling what they make — with payment held safely in
+                escrow until the work is done or the order arrives.
+            </p>
+            <div class="d-flex flex-wrap gap-2">
+                <a href="{% url 'shop_catalog' %}" class="btn btn-gold btn-lg px-4">
+                    Browse the shop
+                </a>
+                {% if user.is_authenticated %}
+                    <a href="{% url 'role_dispatch' %}" class="btn btn-outline-light btn-lg px-4">
+                        Go to your dashboard
+                    </a>
+                {% else %}
+                    <a href="{% url 'register' %}" class="btn btn-outline-light btn-lg px-4">
+                        Post a task, it's free
+                    </a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="lh-pillars">
+        <div class="d-flex gap-3">
+            <div class="lh-pillar-icon"><i class="bi bi-shield-lock"></i></div>
+            <div>
+                <div class="lh-pillar-title">Escrow-protected payments</div>
+                <p class="lh-pillar-text">Funds are held safely and only released once you confirm the job or order is complete.</p>
+            </div>
+        </div>
+        <div class="d-flex gap-3">
+            <div class="lh-pillar-icon"><i class="bi bi-palette"></i></div>
+            <div>
+                <div class="lh-pillar-title">Genuine artisan goods</div>
+                <p class="lh-pillar-text">Every shop item is hand-approved and comes straight from the local maker's own studio.</p>
+            </div>
+        </div>
+        <div class="d-flex gap-3">
+            <div class="lh-pillar-icon"><i class="bi bi-star"></i></div>
+            <div>
+                <div class="lh-pillar-title">Community-rated pros</div>
+                <p class="lh-pillar-text">Every provider and artist carries a rating built from real reviews left by real customers.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============================== HOW IT WORKS ============================== -->
+<section class="mb-5">
+    <h2 class="lh-section-heading lh-display mb-4">How LocalHub works</h2>
+    <div class="row g-4">
+        <div class="col-md-4">
+            <div class="d-flex align-items-start gap-1">
+                <span class="lh-step-num">1</span>
+                <span class="lh-step-line"></span>
+            </div>
+            <h5 class="mt-2 mb-2">Post a task or browse the shop</h5>
+            <p class="text-muted mb-0">
+                Describe a job you need done and set a budget, or explore handmade items from
+                local artists — no account needed to look around.
+            </p>
+        </div>
+        <div class="col-md-4">
+            <div class="d-flex align-items-start gap-1">
+                <span class="lh-step-num">2</span>
+                <span class="lh-step-line"></span>
+            </div>
+            <h5 class="mt-2 mb-2">Get matched, then fund escrow</h5>
+            <p class="text-muted mb-0">
+                Providers bid on your task or you check out from the shop. Either way, your
+                payment is held safely until the work is actually done.
+            </p>
+        </div>
+        <div class="col-md-4">
+            <div class="d-flex align-items-start gap-1">
+                <span class="lh-step-num">3</span>
+                <span class="lh-step-line"></span>
+            </div>
+            <h5 class="mt-2 mb-2">Confirm, pay out, and rate</h5>
+            <p class="text-muted mb-0">
+                Once your task is completed or your order arrives, funds are released and you
+                leave a rating that helps the next customer choose well.
+            </p>
+        </div>
+    </div>
+</section>
+
+<!-- ============================== FEATURED CREATIVE ITEMS ============================== -->
+<section class="mb-5">
+    <div class="d-flex justify-content-between align-items-end mb-4">
+        <div>
+            <h2 class="lh-section-heading lh-display mb-1">From the Creative Shop</h2>
+            <p class="text-muted mb-0">Handmade pieces from local artisans, approved and ready to ship.</p>
+        </div>
+        <a href="{% url 'shop_catalog' %}" class="btn btn-outline-secondary btn-sm d-none d-sm-inline-block">
+            View all items
+        </a>
+    </div>
+
+    {% if featured_items %}
+        <div class="row row-cols-1 row-cols-sm-2 row-cols-lg-4 g-3">
+            {% for item in featured_items %}
+                <div class="col">
+                    <div class="card shadow-sm rounded-3 h-100">
+                        {% if item.image %}
+                            <img src="{{ item.image.url }}" class="card-img-top rounded-top-3"
+                                 alt="{{ item.item_name }}" style="height: 180px; object-fit: cover;">
+                        {% endif %}
+                        <div class="card-body d-flex flex-column">
+                            <h6 class="card-title mb-1">{{ item.item_name }}</h6>
+                            <p class="text-muted small mb-2">by {{ item.artist.full_name }}</p>
+                            <div class="mt-auto d-flex justify-content-between align-items-center">
+                                <strong>&#2547;{{ item.price }}</strong>
+                                <a href="{% url 'item_detail' item.pk %}" class="btn btn-sm btn-primary">
+                                    View item
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="card shadow-sm rounded-3">
+            <div class="card-body p-4 text-muted text-center">
+                <i class="bi bi-shop fs-4 d-block mb-2"></i>
+                No items have been approved for the shop yet — check back soon.
+            </div>
+        </div>
+    {% endif %}
+</section>
+
+<!-- ============================== RECENT TASKS ============================== -->
+<section class="mb-4">
+    <div class="d-flex justify-content-between align-items-end mb-4">
+        <div>
+            <h2 class="lh-section-heading lh-display mb-1">Recently posted tasks</h2>
+            <p class="text-muted mb-0">Real jobs, open right now, waiting for the right provider.</p>
+        </div>
+        {% if user.is_authenticated and user.role == 'provider' %}
+            <a href="{% url 'dashboard_provider' %}" class="btn btn-outline-secondary btn-sm d-none d-sm-inline-block">
+                View all tasks
+            </a>
+        {% endif %}
+    </div>
+
+    {% if recent_tasks %}
+        <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-3">
+            {% for task in recent_tasks %}
+                <div class="col">
+                    <div class="card shadow-sm rounded-3 h-100">
+                        <div class="card-body d-flex flex-column">
+                            <div class="d-flex justify-content-between align-items-start mb-1">
+                                <h6 class="card-title mb-0">{{ task.title }}</h6>
+                                <span class="badge text-bg-light border">{{ task.get_category_display }}</span>
+                            </div>
+                            <p class="text-muted small mb-2">
+                                {{ task.sub_category }} &middot; {{ task.location }}
+                            </p>
+                            <p class="card-text small flex-grow-1">
+                                {{ task.description|truncatewords:18 }}
+                            </p>
+                            <div class="d-flex justify-content-between align-items-center mt-2">
+                                <strong>&#2547;{{ task.budget }}</strong>
+                                {% if user.is_authenticated %}
+                                    <a href="{% url 'task_detail' task.pk %}" class="btn btn-sm btn-primary">
+                                        View task
+                                    </a>
+                                {% else %}
+                                    <a href="{% url 'login' %}" class="btn btn-sm btn-outline-primary">
+                                        Log in to bid
+                                    </a>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="card shadow-sm rounded-3">
+            <div class="card-body p-4 text-muted text-center">
+                <i class="bi bi-clipboard fs-4 d-block mb-2"></i>
+                No open tasks right now — be the first to post one.
+            </div>
+        </div>
+    {% endif %}
+</section>
+
+<!-- ============================== FINAL CTA ============================== -->
+{% if not user.is_authenticated %}
+<section class="rounded-4 p-4 p-md-5 text-center" style="background-color: #eef1f8;">
+    <h3 class="lh-display mb-2">Ready to get started?</h3>
+    <p class="text-muted mb-4">Create a free account as a seeker, provider, or artist in under a minute.</p>
+    <div class="d-flex flex-wrap justify-content-center gap-2">
+        <a href="{% url 'register' %}" class="btn btn-primary btn-lg px-4">Create your account</a>
+        <a href="{% url 'login' %}" class="btn btn-outline-secondary btn-lg px-4">Log in</a>
+    </div>
+</section>
+{% endif %}
+
+{% endblock %}
